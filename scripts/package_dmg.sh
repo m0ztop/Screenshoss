@@ -115,10 +115,6 @@ fi
 echo "=== Creating zipped app bundle ==="
 ditto -c -k --keepParent "$APP_DIR" "$APP_ZIP_PATH"
 
-echo "=== Writing SHA256 checksums ==="
-shasum -a 256 "$DMG_PATH" > "$DMG_PATH.sha256"
-shasum -a 256 "$APP_ZIP_PATH" > "$APP_ZIP_PATH.sha256"
-
 echo "=== Copying local convenience app bundle ==="
 ditto --norsrc --noextattr "$APP_DIR" "$DIST_APP_DIR"
 

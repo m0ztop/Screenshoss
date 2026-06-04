@@ -1,4 +1,13 @@
-# Screenshoss
+<h1 align="center">
+  <img src="Assets/macapp.png" alt="Screenshoss app icon" width="48" height="48" valign="middle">
+  Screenshoss
+</h1>
+
+<p align="center">
+  A free macOS screenshot shelf that keeps your Desktop clean.
+</p>
+
+![Screenshoss running on macOS](docs/assets/screenshoss-hero.png)
 
 Screenshoss is a free macOS screenshot shelf. It watches for Mac screenshots, moves them out of the Desktop, and keeps them in a fast hover panel at the top of the screen.
 
@@ -20,11 +29,6 @@ The app is currently named **Shoss** in the macOS bundle.
 Download the latest packaged app from [`dist/Shoss.dmg`](dist/Shoss.dmg).
 
 You can also download [`dist/Shoss.app.zip`](dist/Shoss.app.zip) if you prefer the zipped app bundle.
-
-Checksum files are included:
-
-- [`dist/Shoss.dmg.sha256`](dist/Shoss.dmg.sha256)
-- [`dist/Shoss.app.zip.sha256`](dist/Shoss.app.zip.sha256)
 
 ## Install
 
@@ -52,6 +56,17 @@ Folders created inside the app map directly to folders inside that location:
 
 The **Recent** pill shows screenshots that are still in the main Screenshots folder. When you drag a screenshot into a named folder, it leaves Recent and appears in that folder.
 
+## Using The Shelf
+
+- Hover the notch at the top of the screen to open the screenshot shelf.
+- Click a screenshot to select it and see details on the right.
+- Double-click a screenshot to open it in Preview.
+- Press Space while a screenshot is selected to open macOS Quick Look.
+- Drag screenshots onto folder pills to organize them.
+- Click `X` to hide the shelf. This does not quit Shoss.
+- Use the status bar camera icon to show Shoss again.
+- Right-click the status bar icon to open the menu with **Open Shoss**, **Open Screenshots Folder**, and **Quit Shoss**.
+
 ## Edit Or Build From Source
 
 If you want to inspect or edit the app:
@@ -72,7 +87,7 @@ Run tests:
 swift test
 ```
 
-Build a fresh universal app, DMG, app zip, and checksums:
+Build a fresh universal app, DMG, and app zip:
 
 ```bash
 scripts/package_dmg.sh

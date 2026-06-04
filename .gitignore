@@ -1,0 +1,14 @@
+.DS_Store
+/.build
+/Packages
+/dist/*
+!/dist/
+!/dist/Shoss.dmg
+!/dist/Shoss.dmg.sha256
+!/dist/Shoss.app.zip
+!/dist/Shoss.app.zip.sha256
+xcuserdata/
+DerivedData/
+.swiftpm/configuration/registries.json
+.swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
+.netrc

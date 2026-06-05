@@ -300,15 +300,15 @@ private struct HeaderView: View {
             }
             .accessibilityLabel("Refresh screenshots")
 
-            CircleHeaderButton(systemName: "folder", tooltip: "Shoss folder") {
+            CircleHeaderButton(systemName: "folder", tooltip: "Screenshoss folder") {
                 library.openStorageFolder()
             }
             .accessibilityLabel("Open screenshots folder")
 
-            CircleHeaderButton(systemName: "xmark", tooltip: "Hide Shoss") {
+            CircleHeaderButton(systemName: "xmark", tooltip: "Hide Screenshoss") {
                 library.closeAction?()
             }
-            .accessibilityLabel("Hide Shoss")
+            .accessibilityLabel("Hide Screenshoss")
         }
     }
 

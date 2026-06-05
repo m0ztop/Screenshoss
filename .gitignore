@@ -3,8 +3,8 @@
 /Packages
 /dist/*
 !/dist/
-!/dist/Shoss.dmg
-!/dist/Shoss.app.zip
+!/dist/Screenshoss.dmg
+!/dist/Screenshoss.app.zip
 xcuserdata/
 DerivedData/
 .swiftpm/configuration/registries.json

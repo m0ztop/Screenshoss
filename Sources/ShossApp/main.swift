@@ -23,14 +23,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
         if let button = statusItem?.button {
-            button.image = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: "Shoss")
+            button.image = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: "Screenshoss")
             button.target = self
             button.action = #selector(statusItemClicked)
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
 
         let menu = NSMenu()
-        let openItem = NSMenuItem(title: "Open Shoss", action: #selector(openShoss), keyEquivalent: "")
+        let openItem = NSMenuItem(title: "Open Screenshoss", action: #selector(openShoss), keyEquivalent: "")
         openItem.target = self
         menu.addItem(openItem)
         menu.addItem(NSMenuItem.separator())
@@ -38,7 +38,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         folderItem.target = self
         menu.addItem(folderItem)
         menu.addItem(NSMenuItem.separator())
-        let quitItem = NSMenuItem(title: "Quit Shoss", action: #selector(quitApp), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: "Quit Screenshoss", action: #selector(quitApp), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
 
@@ -63,7 +63,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openScreenshotsFolder() {
         let storageURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Shoss/Screenshots", isDirectory: true)
+            .appendingPathComponent("Screenshoss/Screenshots", isDirectory: true)
         NSWorkspace.shared.open(storageURL)
     }
 
@@ -82,23 +82,24 @@ private func registerLaunchAgentIfNeeded() {
     }
 
     guard let executablePath = Bundle.main.executablePath else {
-        print("[Shoss] Could not determine executable path for LaunchAgent")
+        print("[Screenshoss] Could not determine executable path for LaunchAgent")
         return
     }
 
     let agentDir = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/LaunchAgents")
-    let plistURL = agentDir.appendingPathComponent("com.mert.shoss.plist")
+    let plistURL = agentDir.appendingPathComponent("com.mert.screenshoss.plist")
+    let legacyPlistURL = agentDir.appendingPathComponent("com.mert.shoss.plist")
 
     do {
         try FileManager.default.createDirectory(at: agentDir, withIntermediateDirectories: true)
     } catch {
-        print("[Shoss] Could not create LaunchAgents directory: \(error)")
+        print("[Screenshoss] Could not create LaunchAgents directory: \(error)")
         return
     }
 
     let plist: [String: Any] = [
-        "Label": "com.mert.shoss",
+        "Label": "com.mert.screenshoss",
         "Program": executablePath,
         "RunAtLoad": true,
         "LimitLoadToSessionType": "Aqua",
@@ -108,8 +109,12 @@ private func registerLaunchAgentIfNeeded() {
         let data = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
         try data.write(to: plistURL)
     } catch {
-        print("[Shoss] Could not write LaunchAgent plist: \(error)")
+        print("[Screenshoss] Could not write LaunchAgent plist: \(error)")
         return
+    }
+
+    if legacyPlistURL != plistURL {
+        try? FileManager.default.removeItem(at: legacyPlistURL)
     }
 
     let uid = getuid()
@@ -122,7 +127,7 @@ private func registerLaunchAgentIfNeeded() {
         try task.run()
         task.waitUntilExit()
     } catch {
-        print("[Shoss] Could not bootstrap LaunchAgent: \(error)")
+        print("[Screenshoss] Could not bootstrap LaunchAgent: \(error)")
     }
 }
 

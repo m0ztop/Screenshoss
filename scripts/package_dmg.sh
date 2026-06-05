@@ -7,14 +7,13 @@ cd "$PROJECT_DIR"
 ARM64_BUILD_DIR=".build/arm64-apple-macosx/release"
 X86_64_BUILD_DIR=".build/x86_64-apple-macosx/release"
 DIST_DIR="dist"
-DIST_APP_DIR="$DIST_DIR/Shoss.app"
-APP_ZIP_PATH="$DIST_DIR/Shoss.app.zip"
+APP_ZIP_PATH="$DIST_DIR/Screenshoss.app.zip"
 PACKAGE_ROOT="/private/tmp/shoss-package"
-APP_DIR="$PACKAGE_ROOT/Shoss.app"
+APP_DIR="$PACKAGE_ROOT/Screenshoss.app"
 STAGING_DIR="$PACKAGE_ROOT/staging"
-ICONSET_DIR="$STAGING_DIR/Shoss.iconset"
+ICONSET_DIR="$STAGING_DIR/Screenshoss.iconset"
 DMG_TMP_DIR="$STAGING_DIR/dmg"
-DMG_PATH="$DIST_DIR/Shoss.dmg"
+DMG_PATH="$DIST_DIR/Screenshoss.dmg"
 CODESIGN_IDENTITY="${CODESIGN_IDENTITY:--}"
 SIGNING_MODE="ad-hoc"
 
@@ -27,7 +26,8 @@ swift build -c release --triple arm64-apple-macosx13.0
 swift build -c release --triple x86_64-apple-macosx13.0
 
 echo "=== Preparing .app bundle ==="
-rm -rf "$PACKAGE_ROOT" "$DIST_APP_DIR" "$APP_ZIP_PATH"
+rm -rf "$PACKAGE_ROOT" "$DIST_DIR/Screenshoss.app" "$APP_ZIP_PATH" "$DIST_DIR/Shoss.app" "$DIST_DIR/Shoss.app.zip"
+rm -f "$DMG_PATH" "$DIST_DIR/Shoss.dmg"
 mkdir -p "$APP_DIR/Contents/MacOS"
 mkdir -p "$APP_DIR/Contents/Resources"
 mkdir -p "$ICONSET_DIR"
@@ -54,7 +54,7 @@ sips -z 512 512 "$SRC_PNG" --out "$ICONSET_DIR/icon_256x256@2x.png"
 sips -z 512 512 "$SRC_PNG" --out "$ICONSET_DIR/icon_512x512.png"
 sips -z 1024 1024 "$SRC_PNG" --out "$ICONSET_DIR/icon_512x512@2x.png"
 
-iconutil -c icns "$ICONSET_DIR" -o "$APP_DIR/Contents/Resources/Shoss.icns"
+iconutil -c icns "$ICONSET_DIR" -o "$APP_DIR/Contents/Resources/Screenshoss.icns"
 
 echo "=== Creating Info.plist ==="
 cat > "$APP_DIR/Contents/Info.plist" << 'PLIST'
@@ -65,15 +65,15 @@ cat > "$APP_DIR/Contents/Info.plist" << 'PLIST'
 	<key>CFBundleExecutable</key>
 	<string>Shoss</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.mert.shoss</string>
+	<string>com.mert.screenshoss</string>
 	<key>CFBundleName</key>
-	<string>Shoss</string>
+	<string>Screenshoss</string>
 	<key>CFBundleDisplayName</key>
-	<string>Shoss</string>
+	<string>Screenshoss</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleIconFile</key>
-	<string>Shoss</string>
+	<string>Screenshoss</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleVersion</key>
@@ -105,7 +105,7 @@ mkdir -p "$DMG_TMP_DIR"
 cp -R "$APP_DIR" "$DMG_TMP_DIR/"
 ln -sf /Applications "$DMG_TMP_DIR/Applications"
 
-hdiutil create -volname Shoss -srcfolder "$DMG_TMP_DIR" -ov -format UDZO "$DMG_PATH"
+hdiutil create -volname Screenshoss -srcfolder "$DMG_TMP_DIR" -ov -format UDZO "$DMG_PATH"
 
 if [ "$CODESIGN_IDENTITY" != "-" ]; then
     echo "=== Signing DMG ($SIGNING_MODE) ==="
@@ -115,14 +115,10 @@ fi
 echo "=== Creating zipped app bundle ==="
 ditto -c -k --keepParent "$APP_DIR" "$APP_ZIP_PATH"
 
-echo "=== Copying local convenience app bundle ==="
-ditto --norsrc --noextattr "$APP_DIR" "$DIST_APP_DIR"
-
 echo "=== Cleaning up packaging workspace ==="
 rm -rf "$PACKAGE_ROOT"
 
 echo "=== Done ==="
-echo "App: $DIST_APP_DIR"
 echo "App ZIP: $APP_ZIP_PATH"
 echo "DMG: $DMG_PATH"
 echo "Signing: $SIGNING_MODE"

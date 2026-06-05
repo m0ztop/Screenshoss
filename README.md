@@ -11,12 +11,10 @@
 
 Screenshoss is a free macOS screenshot shelf. It watches for Mac screenshots, moves them out of the Desktop, and keeps them in a fast hover panel at the top of the screen.
 
-The app is currently named **Shoss** in the macOS bundle.
-
 ## What It Does
 
 - Collects new macOS screenshots automatically.
-- Keeps your Desktop clean by moving screenshots into the Shoss screenshots folder.
+- Keeps your Desktop clean by moving screenshots into the Screenshoss screenshots folder.
 - Opens from a small notch-style shelf at the top of the screen.
 - Shows recent screenshots in a compact grid.
 - Supports folders, drag-and-drop organization, rename, delete, favorite, copy, Finder reveal, and Preview open.
@@ -26,33 +24,33 @@ The app is currently named **Shoss** in the macOS bundle.
 
 ## Download
 
-Download the latest packaged app from [`dist/Shoss.dmg`](dist/Shoss.dmg).
+Download the latest packaged app from [`dist/Screenshoss.dmg`](dist/Screenshoss.dmg).
 
-You can also download [`dist/Shoss.app.zip`](dist/Shoss.app.zip) if you prefer the zipped app bundle.
+You can also download [`dist/Screenshoss.app.zip`](dist/Screenshoss.app.zip) if you prefer the zipped app bundle.
 
 ## Install
 
-1. Download `Shoss.dmg`.
+1. Download `Screenshoss.dmg`.
 2. Open the DMG.
-3. Drag `Shoss.app` into `Applications`.
-4. Open Shoss.
+3. Drag `Screenshoss.app` into `Applications`.
+4. Open Screenshoss.
 
 This early build is ad-hoc signed and not notarized yet, so macOS may show an extra confirmation the first time you open it. If that happens, right-click the app and choose **Open**.
 
 ## How It Works
 
-When you take a screenshot with macOS, Shoss imports supported screenshot image files from your Desktop into:
+When you take a screenshot with macOS, Screenshoss imports supported screenshot image files from your Desktop into:
 
 ```text
-~/Library/Application Support/Shoss/Screenshots
+~/Library/Application Support/Screenshoss/Screenshots
 ```
 
-On first launch, Shoss does not create any custom folders. The shelf starts with **Recent** and the `+` button.
+On first launch, Screenshoss does not create any custom folders. The shelf starts with **Recent** and the `+` button.
 
-When you create a folder in the app, it maps directly to a subfolder inside the Shoss screenshots location:
+When you create a folder in the app, it maps directly to a subfolder inside the Screenshoss screenshots location:
 
 ```text
-~/Library/Application Support/Shoss/Screenshots/<Your Folder Name>
+~/Library/Application Support/Screenshoss/Screenshots/<Your Folder Name>
 ```
 
 The **Recent** pill shows screenshots that are still in the main Screenshots folder. When you drag a screenshot into a custom folder, it leaves Recent and appears in that folder.
@@ -64,9 +62,9 @@ The **Recent** pill shows screenshots that are still in the main Screenshots fol
 - Double-click a screenshot to open it in Preview.
 - Press Space while a screenshot is selected to open macOS Quick Look.
 - Drag screenshots onto folder pills to organize them.
-- Click `X` to hide the shelf. This does not quit Shoss.
-- Use the status bar camera icon to show Shoss again.
-- Right-click the status bar icon to open the menu with **Open Shoss**, **Open Screenshots Folder**, and **Quit Shoss**.
+- Click `X` to hide the shelf. This does not quit Screenshoss.
+- Use the status bar camera icon to show Screenshoss again.
+- Right-click the status bar icon to open the menu with **Open Screenshoss**, **Open Screenshots Folder**, and **Quit Screenshoss**.
 
 ## Edit Or Build From Source
 

@@ -36,9 +36,15 @@ final class ScreenshotLibrary: ObservableObject {
     init(desktopURL: URL = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask)[0]) {
         self.desktopURL = desktopURL
         let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let shossSupportURL = appSupport.appendingPathComponent("Shoss", isDirectory: true)
-        storageURL = shossSupportURL.appendingPathComponent("Screenshots", isDirectory: true)
-        favoritesURL = shossSupportURL.appendingPathComponent("favorites.json")
+        let screenshossSupportURL = appSupport.appendingPathComponent("Screenshoss", isDirectory: true)
+        let legacySupportURL = appSupport.appendingPathComponent("Shoss", isDirectory: true)
+        Self.migrateLegacySupportFolderIfNeeded(
+            fileManager: fileManager,
+            legacyURL: legacySupportURL,
+            currentURL: screenshossSupportURL
+        )
+        storageURL = screenshossSupportURL.appendingPathComponent("Screenshots", isDirectory: true)
+        favoritesURL = screenshossSupportURL.appendingPathComponent("favorites.json")
         loadFavoritePaths()
     }
 
@@ -166,7 +172,7 @@ final class ScreenshotLibrary: ObservableObject {
         alert.addButton(withTitle: "Cancel")
 
         let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
-        textField.placeholderString = "Design"
+        textField.placeholderString = "Project"
         alert.accessoryView = textField
         alert.window.initialFirstResponder = textField
 
@@ -443,6 +449,17 @@ final class ScreenshotLibrary: ObservableObject {
         try? fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
     }
 
+    private static func migrateLegacySupportFolderIfNeeded(
+        fileManager: FileManager,
+        legacyURL: URL,
+        currentURL: URL
+    ) {
+        guard legacyURL.standardizedFileURL != currentURL.standardizedFileURL else { return }
+        guard fileManager.fileExists(atPath: legacyURL.path) else { return }
+        guard !fileManager.fileExists(atPath: currentURL.path) else { return }
+        try? fileManager.moveItem(at: legacyURL, to: currentURL)
+    }
+
     @discardableResult
     private func importScreenshotsFromDesktop() -> Bool {
         guard let desktopFiles = try? fileManager.contentsOfDirectory(
@@ -643,7 +660,7 @@ final class ScreenshotLibrary: ObservableObject {
 final class DirectoryMonitor {
     private let directoryURL: URL
     private let onChange: () -> Void
-    private let queue = DispatchQueue(label: "shoss.desktop.monitor", qos: .utility)
+    private let queue = DispatchQueue(label: "screenshoss.desktop.monitor", qos: .utility)
     private var source: DispatchSourceFileSystemObject?
     private var descriptor: CInt = -1
 

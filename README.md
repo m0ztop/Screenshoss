@@ -47,14 +47,15 @@ When you take a screenshot with macOS, Shoss imports supported screenshot image 
 ~/Library/Application Support/Shoss/Screenshots
 ```
 
-Folders created inside the app map directly to folders inside that location:
+On first launch, Shoss does not create any custom folders. The shelf starts with **Recent** and the `+` button.
+
+When you create a folder in the app, it maps directly to a subfolder inside the Shoss screenshots location:
 
 ```text
-~/Library/Application Support/Shoss/Screenshots/Design
-~/Library/Application Support/Shoss/Screenshots/Text
+~/Library/Application Support/Shoss/Screenshots/<Your Folder Name>
 ```
 
-The **Recent** pill shows screenshots that are still in the main Screenshots folder. When you drag a screenshot into a named folder, it leaves Recent and appears in that folder.
+The **Recent** pill shows screenshots that are still in the main Screenshots folder. When you drag a screenshot into a custom folder, it leaves Recent and appears in that folder.
 
 ## Using The Shelf
 

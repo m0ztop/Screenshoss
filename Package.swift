@@ -13,7 +13,8 @@ let package = Package(
             name: "Shoss",
             path: "Sources/ShossApp",
             linkerSettings: [
-                .linkedFramework("QuickLookUI")
+                .linkedFramework("QuickLookUI"),
+                .linkedFramework("AVFoundation")
             ]
         ),
         .testTarget(

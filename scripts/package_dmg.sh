@@ -32,6 +32,9 @@ mkdir -p "$APP_DIR/Contents/MacOS"
 mkdir -p "$APP_DIR/Contents/Resources"
 mkdir -p "$ICONSET_DIR"
 
+echo "=== Copying startup sound ==="
+cp Assets/app-start.MP3 "$APP_DIR/Contents/Resources/app-start.mp3"
+
 echo "=== Creating universal app executable ==="
 lipo -create \
     "$ARM64_BUILD_DIR/Shoss" \

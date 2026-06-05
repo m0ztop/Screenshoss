@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import Foundation
 
 @MainActor
@@ -6,9 +7,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panelController: ShelfPanelController?
     private var statusItem: NSStatusItem?
     private var statusMenu: NSMenu?
+    private var startupSoundPlayer: AVAudioPlayer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+
+        playStartupSound()
 
         let library = ScreenshotLibrary()
         let panelController = ShelfPanelController(library: library)
@@ -17,6 +21,25 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
         setupStatusItem()
         registerLaunchAgentIfNeeded()
+    }
+
+    private func playStartupSound() {
+        guard let url = startupSoundURL() else { return }
+        guard let player = try? AVAudioPlayer(contentsOf: url) else { return }
+        player.volume = 0.6
+        player.prepareToPlay()
+        player.play()
+        startupSoundPlayer = player
+    }
+
+    private func startupSoundURL() -> URL? {
+        if let bundledURL = Bundle.main.url(forResource: "app-start", withExtension: "mp3") {
+            return bundledURL
+        }
+
+        let localURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent("Assets/app-start.MP3")
+        return FileManager.default.fileExists(atPath: localURL.path) ? localURL : nil
     }
 
     private func setupStatusItem() {

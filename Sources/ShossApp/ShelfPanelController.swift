@@ -52,6 +52,7 @@ final class ShelfPanelController: NSObject {
     private let collapsedSize = CGSize(width: 160, height: 34)
     private let expandedSize = CGSize(width: 1_180, height: 476)
     private var quickLookSource: QuickLookSource?
+    private static var hasPerformedEntranceAnimation = false
 
     init(library: ScreenshotLibrary) {
         self.library = library
@@ -109,9 +110,32 @@ final class ShelfPanelController: NSObject {
     }
 
     func show() {
-        setExpanded(false, animated: false)
-        panel.orderFrontRegardless()
-        library.start()
+        if !Self.hasPerformedEntranceAnimation {
+            Self.hasPerformedEntranceAnimation = true
+            let finalFrame = targetFrame(for: false)
+            let startFrame = CGRect(
+                x: finalFrame.midX - 44,
+                y: finalFrame.maxY - 18,
+                width: 88,
+                height: 20
+            )
+            panel.setFrame(startFrame, display: false)
+            panel.alphaValue = 0.86
+            panel.orderFrontRegardless()
+
+            NSAnimationContext.beginGrouping()
+            NSAnimationContext.current.duration = 0.46
+            NSAnimationContext.current.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1.0, 0.3, 1.0)
+            panel.animator().setFrame(finalFrame, display: true)
+            panel.animator().alphaValue = 1.0
+            NSAnimationContext.endGrouping()
+
+            library.start()
+        } else {
+            setExpanded(false, animated: false)
+            panel.orderFrontRegardless()
+            library.start()
+        }
     }
 
     func hide() {

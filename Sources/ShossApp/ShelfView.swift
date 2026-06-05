@@ -69,6 +69,9 @@ private struct NotchCornerJoinShape: Shape {
 }
 
 private struct CollapsedNotchView: View {
+    private static var hasAnimatedIconEntrance = false
+    @State private var iconVisible = false
+
     var body: some View {
         ZStack(alignment: .top) {
             UnevenRoundedRectangle(
@@ -99,8 +102,20 @@ private struct CollapsedNotchView: View {
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(.white)
                 .frame(width: 132, height: 34)
+                .opacity(iconVisible ? 1 : 0)
+                .scaleEffect(iconVisible ? 1 : 0.5)
         }
         .frame(width: 160, height: 34)
+        .onAppear {
+            if !Self.hasAnimatedIconEntrance {
+                Self.hasAnimatedIconEntrance = true
+                withAnimation(.easeOut(duration: 0.3).delay(0.22)) {
+                    iconVisible = true
+                }
+            } else {
+                iconVisible = true
+            }
+        }
     }
 }
 

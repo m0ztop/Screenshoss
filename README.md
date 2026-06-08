@@ -61,7 +61,9 @@ The **Recent** pill shows screenshots that are still in the main Screenshots fol
 - Click a screenshot to select it and see details on the right.
 - Double-click a screenshot to open it in Preview.
 - Press Space while a screenshot is selected to open macOS Quick Look.
+- Shift-click to select a range of screenshots, or Command-click to add/remove individual screenshots.
 - Drag screenshots onto folder pills to organize them.
+- Drag one selected screenshot to move the whole selection into a folder.
 - Click `X` to hide the shelf. This does not quit Screenshoss.
 - Use the status bar camera icon to show Screenshoss again.
 - Right-click the status bar icon to open the menu with **Open Screenshoss**, **Open Screenshots Folder**, and **Quit Screenshoss**.

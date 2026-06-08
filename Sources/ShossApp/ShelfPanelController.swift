@@ -193,7 +193,7 @@ final class ShelfPanelController: NSObject {
     }
 
     private func targetFrame(for isExpanded: Bool) -> CGRect {
-        let screenFrame = NSScreen.main?.visibleFrame ?? .init(x: 0, y: 0, width: 1_440, height: 900)
+        let screenFrame = NSScreen.main?.frame ?? .init(x: 0, y: 0, width: 1_440, height: 900)
         let size = isExpanded ? constrainedExpandedSize(in: screenFrame) : collapsedSize
         let x = screenFrame.midX - size.width / 2
         let y = screenFrame.maxY - size.height

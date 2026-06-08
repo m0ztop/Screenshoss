@@ -7,9 +7,10 @@ final class ScreenshotLibrary: ObservableObject {
     @Published private(set) var items: [ScreenshotItem] = []
     @Published private(set) var folders: [ScreenshotFolder] = []
     @Published var selectedItem: ScreenshotItem?
+    @Published private(set) var selectedItemIDs: Set<URL> = []
     @Published var selectedFolderName: String?
     @Published var showingFavoritesOnly = false
-    @Published var draggedItemURL: URL?
+    @Published var draggedItemURLs: Set<URL> = []
     @Published var searchText = ""
     @Published var isExpanded = false {
         didSet {
@@ -32,6 +33,7 @@ final class ScreenshotLibrary: ObservableObject {
     private var storageMonitor: DirectoryMonitor?
     private var refreshTask: Task<Void, Never>?
     private var isRunning = false
+    private var selectionAnchorID: URL?
 
     init(desktopURL: URL = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask)[0]) {
         self.desktopURL = desktopURL
@@ -98,26 +100,31 @@ final class ScreenshotLibrary: ObservableObject {
         }
     }
 
-    func select(_ item: ScreenshotItem) {
+    func select(_ item: ScreenshotItem, extendingSelection: Bool = false, togglingSelection: Bool = false) {
+        if extendingSelection {
+            selectRange(through: item)
+        } else if togglingSelection {
+            toggleSelection(of: item)
+        } else {
+            setSingleSelection(item)
+        }
         selectedItem = item
         isExpanded = true
+    }
+
+    func isSelected(_ item: ScreenshotItem) -> Bool {
+        selectedItemIDs.contains(item.id)
     }
 
     func selectFolder(_ folderName: String?) {
         showingFavoritesOnly = false
         selectedFolderName = folderName
-        if let selectedItem, filteredItems.contains(selectedItem) {
-            return
-        }
-        selectedItem = filteredItems.first
+        setSingleSelection(filteredItems.first)
     }
 
     func toggleFavoritesFilter() {
         showingFavoritesOnly.toggle()
-        if let selectedItem, filteredItems.contains(selectedItem) {
-            return
-        }
-        selectedItem = filteredItems.first
+        setSingleSelection(filteredItems.first)
     }
 
     func toggleFavorite(_ item: ScreenshotItem) {
@@ -154,6 +161,7 @@ final class ScreenshotLibrary: ObservableObject {
         do {
             try fileManager.trashItem(at: item.url, resultingItemURL: nil)
             removeFavoritePath(for: item.url)
+            selectedItemIDs.remove(item.id)
             if selectedItem == item {
                 selectedItem = nil
             }
@@ -263,6 +271,9 @@ final class ScreenshotLibrary: ObservableObject {
             if let selectedItem, selectedItem.folderName == folder.name {
                 self.selectedItem = nil
             }
+            selectedItemIDs = selectedItemIDs.filter { id in
+                items.first(where: { $0.id == id })?.folderName != folder.name
+            }
             refresh()
         } catch {
             runErrorAlert(error)
@@ -270,21 +281,33 @@ final class ScreenshotLibrary: ObservableObject {
     }
 
     func beginDragging(_ item: ScreenshotItem) {
-        draggedItemURL = item.url
+        if selectedItemIDs.contains(item.id), selectedItemIDs.count > 1 {
+            draggedItemURLs = selectedItemIDs
+        } else {
+            setSingleSelection(item)
+            draggedItemURLs = [item.id]
+        }
     }
 
     @discardableResult
     func moveDraggedItem(toFolder folderName: String?) -> Bool {
-        guard let draggedItemURL,
-              let item = items.first(where: { $0.url == draggedItemURL }) else {
-            return false
+        let draggedURLs = draggedItemURLs
+        draggedItemURLs = []
+        let draggedItems = draggedURLs.compactMap { url in
+            items.first(where: { $0.url == url })
         }
-        self.draggedItemURL = nil
-        return move(item, toFolder: folderName)
+        return move(draggedItems, toFolder: folderName)
     }
 
     @discardableResult
     func move(_ item: ScreenshotItem, toFolder folderName: String?) -> Bool {
+        move([item], toFolder: folderName)
+    }
+
+    @discardableResult
+    private func move(_ movingItems: [ScreenshotItem], toFolder folderName: String?) -> Bool {
+        guard !movingItems.isEmpty else { return false }
+
         let destinationDirectory: URL
         if let folderName {
             guard let folder = folders.first(where: { $0.name == folderName }) else { return false }
@@ -293,21 +316,21 @@ final class ScreenshotLibrary: ObservableObject {
             destinationDirectory = storageURL
         }
 
-        guard item.url.deletingLastPathComponent().standardizedFileURL != destinationDirectory.standardizedFileURL else {
-            return false
+        let movableItems = movingItems.filter {
+            $0.url.deletingLastPathComponent().standardizedFileURL != destinationDirectory.standardizedFileURL
         }
+        guard !movableItems.isEmpty else { return false }
 
-        let destinationURL = uniqueDestinationURL(for: item.name, in: destinationDirectory)
+        var movedURLs: [URL] = []
         do {
-            try fileManager.moveItem(at: item.url, to: destinationURL)
-            updateFavoritePath(from: item.url, to: destinationURL)
-            refresh()
-            if let movedItem = items.first(where: { $0.url == destinationURL }),
-               filteredItems.contains(movedItem) {
-                selectedItem = movedItem
-            } else {
-                selectedItem = filteredItems.first
+            for item in movableItems {
+                let destinationURL = uniqueDestinationURL(for: item.name, in: destinationDirectory)
+                try fileManager.moveItem(at: item.url, to: destinationURL)
+                updateFavoritePath(from: item.url, to: destinationURL)
+                movedURLs.append(destinationURL)
             }
+            refresh()
+            restoreSelection(afterMovingTo: movedURLs)
             return true
         } catch {
             runErrorAlert(error)
@@ -361,6 +384,9 @@ final class ScreenshotLibrary: ObservableObject {
             try fileManager.moveItem(at: item.url, to: newURL)
             updateFavoritePath(from: item.url, to: newURL)
             refresh()
+            if let renamedItem = items.first(where: { $0.url == newURL }) {
+                setSingleSelection(renamedItem)
+            }
         } catch {
             runErrorAlert(error)
         }
@@ -447,6 +473,56 @@ final class ScreenshotLibrary: ObservableObject {
         let dir = storageURL
         guard !fileManager.fileExists(atPath: dir.path) else { return }
         try? fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
+    }
+
+    private func setSingleSelection(_ item: ScreenshotItem?) {
+        selectedItem = item
+        if let item {
+            selectedItemIDs = [item.id]
+            selectionAnchorID = item.id
+        } else {
+            selectedItemIDs = []
+            selectionAnchorID = nil
+        }
+    }
+
+    private func selectRange(through item: ScreenshotItem) {
+        guard let anchorID = selectionAnchorID,
+              let anchorIndex = filteredItems.firstIndex(where: { $0.id == anchorID }),
+              let itemIndex = filteredItems.firstIndex(where: { $0.id == item.id }) else {
+            setSingleSelection(item)
+            return
+        }
+
+        let bounds = min(anchorIndex, itemIndex)...max(anchorIndex, itemIndex)
+        selectedItemIDs = Set(filteredItems[bounds].map(\.id))
+    }
+
+    private func toggleSelection(of item: ScreenshotItem) {
+        if selectedItemIDs.contains(item.id), selectedItemIDs.count > 1 {
+            selectedItemIDs.remove(item.id)
+            if selectedItem == item {
+                selectedItem = filteredItems.first { selectedItemIDs.contains($0.id) }
+                selectionAnchorID = selectedItem?.id
+            }
+        } else {
+            selectedItemIDs.insert(item.id)
+            selectedItem = item
+            selectionAnchorID = item.id
+        }
+    }
+
+    private func restoreSelection(afterMovingTo movedURLs: [URL]) {
+        let movedURLSet = Set(movedURLs)
+        let visibleMovedItems = filteredItems.filter { movedURLSet.contains($0.url) }
+        if !visibleMovedItems.isEmpty {
+            selectedItemIDs = Set(visibleMovedItems.map(\.id))
+            selectedItem = visibleMovedItems.first
+            selectionAnchorID = selectedItem?.id
+            return
+        }
+
+        setSingleSelection(filteredItems.first)
     }
 
     private static func migrateLegacySupportFolderIfNeeded(
@@ -602,21 +678,32 @@ final class ScreenshotLibrary: ObservableObject {
         }
 
         if items.isEmpty {
-            selectedItem = nil
+            setSingleSelection(nil)
             return
         }
+
+        let visibleIDs = Set(filteredItems.map(\.id))
+        selectedItemIDs.formIntersection(visibleIDs)
 
         if let selectedURL,
            let updatedSelection = filteredItems.first(where: { $0.url == selectedURL }) {
             selectedItem = updatedSelection
+            if selectedItemIDs.isEmpty {
+                selectedItemIDs = [updatedSelection.id]
+                selectionAnchorID = updatedSelection.id
+            }
             return
         }
 
         if let selectedItem, filteredItems.contains(selectedItem) {
+            if selectedItemIDs.isEmpty {
+                selectedItemIDs = [selectedItem.id]
+                selectionAnchorID = selectedItem.id
+            }
             return
         }
 
-        selectedItem = filteredItems.first
+        setSingleSelection(filteredItems.first)
     }
 
     private func scheduleRefresh(retryCount: Int = 0) {

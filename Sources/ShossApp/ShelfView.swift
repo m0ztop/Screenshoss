@@ -588,13 +588,18 @@ private struct ScreenshotGridView: View {
                         ForEach(library.filteredItems) { item in
                             ScreenshotCardView(
                                 item: item,
-                                isSelected: item == library.selectedItem,
+                                isSelected: library.isSelected(item),
                                 onDelete: { library.delete(item) },
                                 onToggleFavorite: { library.toggleFavorite(item) }
                             )
                             .frame(width: columnWidth)
                             .onTapGesture {
-                                library.select(item)
+                                let modifiers = NSApp.currentEvent?.modifierFlags ?? []
+                                library.select(
+                                    item,
+                                    extendingSelection: modifiers.contains(.shift),
+                                    togglingSelection: modifiers.contains(.command)
+                                )
                             }
                             .onTapGesture(count: 2) {
                                 library.open(item)

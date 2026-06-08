@@ -73,6 +73,10 @@ final class ScreenshotLibrary: ObservableObject {
         items.filter(\.isFavorite).count
     }
 
+    var selectedItemCount: Int {
+        selectedItemsInDisplayOrder().count
+    }
+
     func start() {
         guard !isRunning else { return }
         isRunning = true
@@ -103,12 +107,12 @@ final class ScreenshotLibrary: ObservableObject {
     func select(_ item: ScreenshotItem, extendingSelection: Bool = false, togglingSelection: Bool = false) {
         if extendingSelection {
             selectRange(through: item)
+            selectedItem = item
         } else if togglingSelection {
             toggleSelection(of: item)
         } else {
             setSingleSelection(item)
         }
-        selectedItem = item
         isExpanded = true
     }
 
@@ -147,6 +151,20 @@ final class ScreenshotLibrary: ObservableObject {
         return true
     }
 
+    @discardableResult
+    func copySelection() -> Bool {
+        let selectedItems = selectedItemsInDisplayOrder()
+        guard !selectedItems.isEmpty else { return false }
+
+        if selectedItems.count == 1, let item = selectedItems.first {
+            return copy(item)
+        }
+
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        return pasteboard.writeObjects(selectedItems.map { $0.url as NSURL })
+    }
+
     func open(_ item: ScreenshotItem) {
         NSApp.activate(ignoringOtherApps: false)
         NSWorkspace.shared.open(item.url)
@@ -158,16 +176,59 @@ final class ScreenshotLibrary: ObservableObject {
     }
 
     func delete(_ item: ScreenshotItem) {
+        deleteItems([item])
+    }
+
+    @discardableResult
+    func deleteSelection(fallback item: ScreenshotItem? = nil) -> Bool {
+        let selectedItems = selectedItemsInDisplayOrder()
+        let itemsToDelete: [ScreenshotItem]
+        if let item, !selectedItemIDs.contains(item.id) {
+            itemsToDelete = [item]
+        } else if !selectedItems.isEmpty {
+            itemsToDelete = selectedItems
+        } else if let item {
+            itemsToDelete = [item]
+        } else {
+            itemsToDelete = []
+        }
+
+        return deleteItems(itemsToDelete)
+    }
+
+    func shouldActOnSelection(for item: ScreenshotItem) -> Bool {
+        selectedItemIDs.contains(item.id) && selectedItemCount > 1
+    }
+
+    @discardableResult
+    private func deleteItems(_ itemsToDelete: [ScreenshotItem]) -> Bool {
+        let uniqueItems = Array(Dictionary(grouping: itemsToDelete, by: \.id).compactMap { $0.value.first })
+        guard !uniqueItems.isEmpty else { return false }
+
+        var deletedIDs: Set<URL> = []
         do {
-            try fileManager.trashItem(at: item.url, resultingItemURL: nil)
-            removeFavoritePath(for: item.url)
-            selectedItemIDs.remove(item.id)
-            if selectedItem == item {
-                selectedItem = nil
+            for item in uniqueItems {
+                try fileManager.trashItem(at: item.url, resultingItemURL: nil)
+                removeFavoritePath(for: item.url)
+                deletedIDs.insert(item.id)
+            }
+
+            selectedItemIDs.subtract(deletedIDs)
+            if let selectedItem, deletedIDs.contains(selectedItem.id) {
+                self.selectedItem = nil
             }
             refresh()
+            return true
         } catch {
+            if !deletedIDs.isEmpty {
+                selectedItemIDs.subtract(deletedIDs)
+                if let selectedItem, deletedIDs.contains(selectedItem.id) {
+                    self.selectedItem = nil
+                }
+                refresh()
+            }
             runErrorAlert(error)
+            return !deletedIDs.isEmpty
         }
     }
 
@@ -287,6 +348,13 @@ final class ScreenshotLibrary: ObservableObject {
             setSingleSelection(item)
             draggedItemURLs = [item.id]
         }
+    }
+
+    func dragURLs(startingFrom item: ScreenshotItem) -> [URL] {
+        beginDragging(item)
+        let draggedURLs = draggedItemURLs
+        let orderedURLs = filteredItems.map(\.url).filter { draggedURLs.contains($0) }
+        return orderedURLs.isEmpty ? [item.url] : orderedURLs
     }
 
     @discardableResult
@@ -510,6 +578,16 @@ final class ScreenshotLibrary: ObservableObject {
             selectedItem = item
             selectionAnchorID = item.id
         }
+    }
+
+    private func selectedItemsInDisplayOrder() -> [ScreenshotItem] {
+        let selectedIDs = selectedItemIDs
+        let orderedItems = filteredItems.filter { selectedIDs.contains($0.id) }
+        if !orderedItems.isEmpty {
+            return orderedItems
+        }
+
+        return selectedItem.map { [$0] } ?? []
     }
 
     private func restoreSelection(afterMovingTo movedURLs: [URL]) {

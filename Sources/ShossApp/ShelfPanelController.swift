@@ -18,6 +18,8 @@ private final class QuickLookSource: NSObject, QLPreviewPanelDataSource {
 
 private final class ShelfPanel: NSPanel {
     var quickLookAction: (() -> Void)?
+    var copySelectionAction: (() -> Bool)?
+    var deleteSelectionAction: (() -> Bool)?
 
     override var canBecomeKey: Bool { true }
 
@@ -32,6 +34,23 @@ private final class ShelfPanel: NSPanel {
     }
 
     override func keyDown(with event: NSEvent) {
+        if isTextInputActive {
+            super.keyDown(with: event)
+            return
+        }
+
+        if isCommandCopy(event) {
+            if copySelectionAction?() == true {
+                return
+            }
+        }
+
+        if isDeleteKey(event) {
+            if deleteSelectionAction?() == true {
+                return
+            }
+        }
+
         if event.keyCode == 49 {
             quickLookAction?()
             return
@@ -39,8 +58,31 @@ private final class ShelfPanel: NSPanel {
         super.keyDown(with: event)
     }
 
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if !isTextInputActive, isCommandCopy(event), copySelectionAction?() == true {
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    private var isTextInputActive: Bool {
+        firstResponder is NSTextView
+    }
+
+    private func isCommandCopy(_ event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard flags.contains(.command), !flags.contains(.control), !flags.contains(.option) else {
+            return false
+        }
+        return event.charactersIgnoringModifiers?.lowercased() == "c"
+    }
+
+    private func isDeleteKey(_ event: NSEvent) -> Bool {
+        event.keyCode == 51 || event.keyCode == 117
+    }
+
     private func resignTextInputFocusIfNeeded() {
-        guard firstResponder is NSTextView else { return }
+        guard isTextInputActive else { return }
         makeFirstResponder(nil)
     }
 }
@@ -106,6 +148,14 @@ final class ShelfPanelController: NSObject {
 
         panel.quickLookAction = { [weak self] in
             self?.toggleQuickLook()
+        }
+
+        panel.copySelectionAction = { [weak self] in
+            self?.library.copySelection() ?? false
+        }
+
+        panel.deleteSelectionAction = { [weak self] in
+            self?.library.deleteSelection() ?? false
         }
     }
 
@@ -174,6 +224,9 @@ final class ShelfPanelController: NSObject {
         }
 
         if animated {
+            if isExpanded {
+                panel.setFrame(targetFrame(for: false), display: false)
+            }
             NSAnimationContext.beginGrouping()
             NSAnimationContext.current.duration = isExpanded ? 0.38 : 0.24
             NSAnimationContext.current.timingFunction = isExpanded

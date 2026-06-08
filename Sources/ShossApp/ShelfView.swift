@@ -343,13 +343,17 @@ private struct FolderFilterStripView: View {
     @State private var bumpedFolderName: String?
     @State private var addButtonHovered = false
     @State private var folderContentWidth: CGFloat = 1
+    @State private var folderContentMinX: CGFloat = 0
 
     private let maxFolderScrollWidth: CGFloat = 560
     private let folderFadeWidth: CGFloat = 64
+    private let scrollCoordinateSpace = "FolderFilterScroll"
 
     var body: some View {
         let scrollWidth = min(maxFolderScrollWidth, max(1, folderContentWidth))
         let isOverflowing = folderContentWidth > maxFolderScrollWidth
+        let shouldShowLeadingFade = isOverflowing && folderContentMinX < -2
+        let shouldShowTrailingFade = isOverflowing && folderContentMinX + folderContentWidth > scrollWidth + 2
 
         HStack(spacing: 8) {
             ScrollView(.horizontal, showsIndicators: false) {
@@ -386,15 +390,34 @@ private struct FolderFilterStripView: View {
                 .padding(.vertical, 4)
                 .background {
                     GeometryReader { proxy in
-                        Color.clear.preference(key: FolderContentWidthKey.self, value: proxy.size.width)
+                        Color.clear
+                            .preference(key: FolderContentWidthKey.self, value: proxy.size.width)
+                            .preference(
+                                key: FolderContentMinXKey.self,
+                                value: proxy.frame(in: .named(scrollCoordinateSpace)).minX
+                            )
                     }
                 }
             }
+            .coordinateSpace(name: scrollCoordinateSpace)
             .frame(width: scrollWidth, alignment: .leading)
             .mask(
                 HStack(spacing: 0) {
+                    if shouldShowLeadingFade {
+                        LinearGradient(
+                            stops: [
+                                .init(color: .clear, location: 0),
+                                .init(color: .black.opacity(0.34), location: 0.26),
+                                .init(color: .black.opacity(0.82), location: 0.58),
+                                .init(color: .black, location: 1)
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                        .frame(width: folderFadeWidth)
+                    }
                     Rectangle().fill(.black)
-                    if isOverflowing {
+                    if shouldShowTrailingFade {
                         LinearGradient(
                             stops: [
                                 .init(color: .black, location: 0),
@@ -410,6 +433,7 @@ private struct FolderFilterStripView: View {
                 }
             )
             .onPreferenceChange(FolderContentWidthKey.self) { folderContentWidth = $0 }
+            .onPreferenceChange(FolderContentMinXKey.self) { folderContentMinX = $0 }
 
             Button(action: library.createFolder) {
                 Image(systemName: "plus")
@@ -455,6 +479,14 @@ private struct FolderContentWidthKey: PreferenceKey {
 
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = max(value, nextValue())
+    }
+}
+
+private struct FolderContentMinXKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }
 
@@ -586,38 +618,41 @@ private struct ScreenshotGridView: View {
                 ScrollView(.vertical, showsIndicators: false) {
                     LazyVGrid(columns: columns, spacing: cardSpacing) {
                         ForEach(library.filteredItems) { item in
-                            ScreenshotCardView(
-                                item: item,
-                                isSelected: library.isSelected(item),
-                                onDelete: { library.delete(item) },
-                                onToggleFavorite: { library.toggleFavorite(item) }
-                            )
-                            .frame(width: columnWidth)
-                            .onTapGesture {
-                                let modifiers = NSApp.currentEvent?.modifierFlags ?? []
+                            let selectItem: (NSEvent.ModifierFlags) -> Void = { modifiers in
                                 library.select(
                                     item,
                                     extendingSelection: modifiers.contains(.shift),
                                     togglingSelection: modifiers.contains(.command)
                                 )
                             }
-                            .onTapGesture(count: 2) {
-                                library.open(item)
-                            }
+                            let actsOnSelection = library.shouldActOnSelection(for: item)
+
+                            ScreenshotCardView(
+                                item: item,
+                                isSelected: library.isSelected(item),
+                                onDelete: { library.deleteSelection(fallback: item) },
+                                onToggleFavorite: { library.toggleFavorite(item) },
+                                onSelect: selectItem,
+                                onOpen: { library.open(item) },
+                                dragURLs: { library.dragURLs(startingFrom: item) }
+                            )
+                            .frame(width: columnWidth)
                             .contextMenu {
-                                Button("Copy Image") { library.copy(item) }
+                                Button(actsOnSelection ? "Copy Selected Images" : "Copy Image") {
+                                    if actsOnSelection {
+                                        library.copySelection()
+                                    } else {
+                                        library.copy(item)
+                                    }
+                                }
                                 Button("Open") { library.open(item) }
                                 Button("Reveal in Finder") { library.reveal(item) }
                                 Divider()
                                 Button("Rename...") { library.rename(item) }
                                 Divider()
-                                Button("Move to Trash", role: .destructive) { library.delete(item) }
-                            }
-                            .onDrag {
-                                library.beginDragging(item)
-                                return NSItemProvider(contentsOf: item.url) ?? NSItemProvider()
-                            } preview: {
-                                ScreenshotDragPreview(item: item)
+                                Button(actsOnSelection ? "Move Selected to Trash" : "Move to Trash", role: .destructive) {
+                                    library.deleteSelection(fallback: item)
+                                }
                             }
                         }
                     }
@@ -628,42 +663,14 @@ private struct ScreenshotGridView: View {
     }
 }
 
-private struct ScreenshotDragPreview: View {
-    let item: ScreenshotItem
-
-    var body: some View {
-        AsyncImage(url: item.url) { phase in
-            switch phase {
-            case .success(let image):
-                image
-                    .resizable()
-                    .scaledToFit()
-            default:
-                Rectangle()
-                    .fill(.white.opacity(0.12))
-                    .overlay {
-                        Image(systemName: "photo")
-                            .font(.system(size: 16))
-                            .foregroundStyle(.white.opacity(0.48))
-                    }
-            }
-        }
-        .frame(width: 92, height: 58)
-        .background(.black.opacity(0.78))
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(.white.opacity(0.35), lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.35), radius: 10, y: 5)
-    }
-}
-
 private struct ScreenshotCardView: View {
     let item: ScreenshotItem
     let isSelected: Bool
     let onDelete: () -> Void
     let onToggleFavorite: () -> Void
+    let onSelect: (NSEvent.ModifierFlags) -> Void
+    let onOpen: () -> Void
+    let dragURLs: () -> [URL]
     @State private var isHovered = false
 
     var body: some View {
@@ -722,6 +729,13 @@ private struct ScreenshotCardView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(.white.opacity(0.07))
             }
+            .overlay {
+                ScreenshotMultiDragSourceView(
+                    dragURLs: dragURLs,
+                    onClick: onSelect,
+                    onDoubleClick: onOpen
+                )
+            }
 
             if isHovered || item.isFavorite {
                 HStack {
@@ -755,6 +769,178 @@ private struct ScreenshotCardView: View {
                 isHovered = hovering
             }
         }
+    }
+}
+
+private struct ScreenshotMultiDragSourceView: NSViewRepresentable {
+    let dragURLs: () -> [URL]
+    let onClick: (NSEvent.ModifierFlags) -> Void
+    let onDoubleClick: () -> Void
+
+    func makeNSView(context: Context) -> ScreenshotMultiDragSourceNSView {
+        let view = ScreenshotMultiDragSourceNSView()
+        view.dragURLs = dragURLs
+        view.onClick = onClick
+        view.onDoubleClick = onDoubleClick
+        return view
+    }
+
+    func updateNSView(_ view: ScreenshotMultiDragSourceNSView, context: Context) {
+        view.dragURLs = dragURLs
+        view.onClick = onClick
+        view.onDoubleClick = onDoubleClick
+    }
+}
+
+private final class ScreenshotMultiDragSourceNSView: NSView, NSDraggingSource {
+    var dragURLs: (() -> [URL])?
+    var onClick: ((NSEvent.ModifierFlags) -> Void)?
+    var onDoubleClick: (() -> Void)?
+
+    private var mouseDownEvent: NSEvent?
+    private var didStartDrag = false
+    private let dragStartThreshold: CGFloat = 4
+
+    override var isFlipped: Bool { true }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        mouseDownEvent = event
+        didStartDrag = false
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard !didStartDrag else { return }
+        guard hasMovedPastDragThreshold(event) else { return }
+
+        let urls = dragURLs?() ?? []
+        guard !urls.isEmpty else { return }
+
+        didStartDrag = true
+        beginDraggingSession(
+            with: draggingItems(for: urls),
+            event: mouseDownEvent ?? event,
+            source: self
+        )
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        defer {
+            mouseDownEvent = nil
+            didStartDrag = false
+        }
+
+        guard !didStartDrag else { return }
+        if event.clickCount >= 2 {
+            onDoubleClick?()
+        } else {
+            onClick?(mouseDownEvent?.modifierFlags ?? event.modifierFlags)
+        }
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        nextResponder?.rightMouseDown(with: event)
+    }
+
+    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+        context == .outsideApplication ? .copy : [.copy, .move]
+    }
+
+    func ignoreModifierKeys(for session: NSDraggingSession) -> Bool {
+        false
+    }
+
+    private func hasMovedPastDragThreshold(_ event: NSEvent) -> Bool {
+        guard let mouseDownEvent else { return true }
+        let deltaX = event.locationInWindow.x - mouseDownEvent.locationInWindow.x
+        let deltaY = event.locationInWindow.y - mouseDownEvent.locationInWindow.y
+        return hypot(deltaX, deltaY) >= dragStartThreshold
+    }
+
+    private func draggingItems(for urls: [URL]) -> [NSDraggingItem] {
+        let previewSize = NSSize(width: min(max(bounds.width, 72), 112), height: 70)
+        return urls.enumerated().map { index, url in
+            let draggingItem = NSDraggingItem(pasteboardWriter: url as NSURL)
+            let offset = min(CGFloat(index) * 3, 18)
+            let frame = NSRect(
+                x: max(0, (bounds.width - previewSize.width) / 2) + offset,
+                y: max(0, (bounds.height - previewSize.height) / 2) + offset,
+                width: previewSize.width,
+                height: previewSize.height
+            )
+            draggingItem.setDraggingFrame(
+                frame,
+                contents: dragPreviewImage(for: url, count: urls.count, isPrimary: index == 0)
+            )
+            return draggingItem
+        }
+    }
+
+    private func dragPreviewImage(for url: URL, count: Int, isPrimary: Bool) -> NSImage {
+        let size = NSSize(width: 112, height: 70)
+        let image = NSImage(size: size)
+        image.lockFocus()
+
+        NSColor.black.withAlphaComponent(0.82).setFill()
+        NSBezierPath(roundedRect: NSRect(origin: .zero, size: size), xRadius: 12, yRadius: 12).fill()
+
+        if let screenshot = NSImage(contentsOf: url) {
+            screenshot.draw(
+                in: aspectFitRect(for: screenshot.size, inside: NSRect(x: 0, y: 0, width: size.width, height: size.height)),
+                from: .zero,
+                operation: .sourceOver,
+                fraction: 1
+            )
+        }
+
+        if isPrimary, count > 1 {
+            drawCountBadge(count, in: size)
+        }
+
+        image.unlockFocus()
+        return image
+    }
+
+    private func aspectFitRect(for imageSize: NSSize, inside bounds: NSRect) -> NSRect {
+        guard imageSize.width > 0, imageSize.height > 0 else { return bounds }
+        let scale = min(bounds.width / imageSize.width, bounds.height / imageSize.height)
+        let width = imageSize.width * scale
+        let height = imageSize.height * scale
+        return NSRect(
+            x: bounds.midX - width / 2,
+            y: bounds.midY - height / 2,
+            width: width,
+            height: height
+        )
+    }
+
+    private func drawCountBadge(_ count: Int, in size: NSSize) {
+        let text = "\(count)"
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 13, weight: .semibold),
+            .foregroundColor: NSColor.black
+        ]
+        let textSize = text.size(withAttributes: attributes)
+        let badgeRect = NSRect(
+            x: size.width - textSize.width - 17,
+            y: 7,
+            width: textSize.width + 12,
+            height: 20
+        )
+        NSColor.white.withAlphaComponent(0.94).setFill()
+        NSBezierPath(roundedRect: badgeRect, xRadius: 10, yRadius: 10).fill()
+        text.draw(
+            in: NSRect(
+                x: badgeRect.midX - textSize.width / 2,
+                y: badgeRect.midY - textSize.height / 2,
+                width: textSize.width,
+                height: textSize.height
+            ),
+            withAttributes: attributes
+        )
     }
 }
 
@@ -882,7 +1068,7 @@ private struct DetailPaneView: View {
                             CopiedIndicatorView()
                         } else {
                             DetailActionButton(title: "Copy", icon: "doc.on.doc") {
-                                if library.copy(item) {
+                                if library.copySelection() {
                                     justCopiedItemID = item.id
                                     let capturedID = item.id
                                     Task { @MainActor in
@@ -906,7 +1092,7 @@ private struct DetailPaneView: View {
                         library.reveal(item)
                     }
                     DetailActionButton(title: "Trash", icon: "trash") {
-                        library.delete(item)
+                        library.deleteSelection(fallback: item)
                     }
                 }
             }

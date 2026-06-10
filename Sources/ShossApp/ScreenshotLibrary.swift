@@ -740,7 +740,7 @@ final class ScreenshotLibrary: ObservableObject {
             }
             .sorted { $0.createdAt > $1.createdAt }
 
-        items = Array(nextItems.prefix(80))
+        items = nextItems
         folders = subfolderURLs
             .map { folderURL in
                 ScreenshotFolder(

@@ -608,7 +608,10 @@ private struct ScreenshotGridView: View {
 
     var body: some View {
         if library.filteredItems.isEmpty {
-            EmptyShelfView(desktopPath: library.desktopPath)
+            EmptyShelfView(
+                title: emptyTitle,
+                detail: emptyDetail
+            )
         } else {
             GeometryReader { geometry in
                 let availableWidth = geometry.size.width - innerHorizontalPadding * 2
@@ -660,6 +663,28 @@ private struct ScreenshotGridView: View {
                 }
             }
         }
+    }
+
+    private var emptyTitle: String {
+        let query = library.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !query.isEmpty {
+            return "No matching screenshots"
+        }
+        if library.showingFavoritesOnly {
+            return "No favorite screenshots yet"
+        }
+        if let folderName = library.selectedFolderName {
+            return "No screenshots in \(folderName)"
+        }
+        return "No recent screenshots yet"
+    }
+
+    private var emptyDetail: String {
+        let query = library.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !query.isEmpty {
+            return "Clear search to see all screenshots."
+        }
+        return library.desktopPath
     }
 }
 
@@ -1161,16 +1186,17 @@ private struct DetailRow: View {
 }
 
 private struct EmptyShelfView: View {
-    let desktopPath: String
+    let title: String
+    let detail: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Image(systemName: "photo.on.rectangle.angled")
                 .font(.system(size: 24, weight: .regular))
                 .foregroundStyle(.white.opacity(0.55))
-            Text("No Desktop screenshots yet")
+            Text(title)
                 .font(.system(size: 14, weight: .semibold))
-            Text(desktopPath)
+            Text(detail)
                 .font(.system(size: 11, weight: .regular))
                 .foregroundStyle(.white.opacity(0.48))
                 .lineLimit(1)

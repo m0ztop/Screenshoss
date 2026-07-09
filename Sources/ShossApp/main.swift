@@ -7,11 +7,15 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panelController: ShelfPanelController?
     private var statusItem: NSStatusItem?
     private var statusMenu: NSMenu?
+    private var placementItems: [ShelfPresentationMode: NSMenuItem] = [:]
     private var startupSoundPlayer: AVAudioPlayer?
+    private let showNotificationName = Notification.Name("com.mert.screenshoss.show")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
 
+        guard !terminateIfAnotherInstanceIsRunning() else { return }
+        registerShowNotification()
         playStartupSound()
 
         let library = ScreenshotLibrary()
@@ -21,6 +25,38 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
         setupStatusItem()
         registerLaunchAgentIfNeeded()
+    }
+
+    private func terminateIfAnotherInstanceIsRunning() -> Bool {
+        guard let bundleIdentifier = Bundle.main.bundleIdentifier else { return false }
+        let currentPID = ProcessInfo.processInfo.processIdentifier
+        let existingApps = NSRunningApplication
+            .runningApplications(withBundleIdentifier: bundleIdentifier)
+            .filter { $0.processIdentifier != currentPID && !$0.isTerminated }
+
+        guard !existingApps.isEmpty else { return false }
+
+        DistributedNotificationCenter.default().postNotificationName(
+            showNotificationName,
+            object: nil,
+            userInfo: nil,
+            deliverImmediately: true
+        )
+        NSApp.terminate(nil)
+        return true
+    }
+
+    private func registerShowNotification() {
+        DistributedNotificationCenter.default().addObserver(
+            self,
+            selector: #selector(showFromDistributedNotification),
+            name: showNotificationName,
+            object: nil
+        )
+    }
+
+    @objc private func showFromDistributedNotification(_ notification: Notification) {
+        panelController?.show()
     }
 
     private func playStartupSound() {
@@ -56,6 +92,21 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         let openItem = NSMenuItem(title: "Open Screenshoss", action: #selector(openShoss), keyEquivalent: "")
         openItem.target = self
         menu.addItem(openItem)
+
+        let positionItem = NSMenuItem(title: "Notch Position", action: nil, keyEquivalent: "")
+        let positionMenu = NSMenu()
+        placementItems = [:]
+        for mode in ShelfPresentationMode.allCases {
+            let item = NSMenuItem(title: mode.menuTitle, action: #selector(setShelfPosition(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = mode.rawValue
+            positionMenu.addItem(item)
+            placementItems[mode] = item
+        }
+        menu.addItem(positionItem)
+        menu.setSubmenu(positionMenu, for: positionItem)
+        updatePlacementMenuState()
+
         menu.addItem(NSMenuItem.separator())
         let folderItem = NSMenuItem(title: "Open Screenshots Folder", action: #selector(openScreenshotsFolder), keyEquivalent: "")
         folderItem.target = self
@@ -74,6 +125,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         if event.type == .rightMouseUp, let button = statusItem?.button, let menu = statusMenu {
+            updatePlacementMenuState()
             menu.popUp(positioning: nil, at: .zero, in: button)
         } else {
             panelController?.show()
@@ -82,6 +134,22 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openShoss() {
         panelController?.show()
+    }
+
+    @objc private func setShelfPosition(_ sender: NSMenuItem) {
+        guard let rawValue = sender.representedObject as? String,
+              let mode = ShelfPresentationMode(rawValue: rawValue) else {
+            return
+        }
+        panelController?.setPresentationMode(mode)
+        updatePlacementMenuState()
+    }
+
+    private func updatePlacementMenuState() {
+        let currentMode = panelController?.presentationMode
+        for (mode, item) in placementItems {
+            item.state = mode == currentMode ? .on : .off
+        }
     }
 
     @objc private func openScreenshotsFolder() {

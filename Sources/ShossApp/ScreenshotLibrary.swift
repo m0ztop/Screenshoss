@@ -2,6 +2,20 @@ import AppKit
 import Combine
 import Foundation
 
+enum ShelfPresentationMode: String, CaseIterable, Hashable {
+    case top
+    case left
+    case right
+
+    var menuTitle: String {
+        switch self {
+        case .top: "Top Notch"
+        case .left: "Left Notch"
+        case .right: "Right Notch"
+        }
+    }
+}
+
 @MainActor
 final class ScreenshotLibrary: ObservableObject {
     @Published private(set) var items: [ScreenshotItem] = []
@@ -12,6 +26,11 @@ final class ScreenshotLibrary: ObservableObject {
     @Published var showingFavoritesOnly = false
     @Published var draggedItemURLs: Set<URL> = []
     @Published var searchText = ""
+    @Published var presentationMode: ShelfPresentationMode {
+        didSet {
+            UserDefaults.standard.set(presentationMode.rawValue, forKey: Self.presentationModeDefaultsKey)
+        }
+    }
     @Published var isExpanded = false {
         didSet {
             guard oldValue != isExpanded else { return }
@@ -20,6 +39,7 @@ final class ScreenshotLibrary: ObservableObject {
     }
 
     var expansionDidChange: ((Bool) -> Void)?
+    var shouldCollapseAfterHoverExit: (() -> Bool)?
     var closeAction: (() -> Void)?
     var modalWillOpen: (() -> Void)?
     var modalDidClose: (() -> Void)?
@@ -34,9 +54,16 @@ final class ScreenshotLibrary: ObservableObject {
     private var refreshTask: Task<Void, Never>?
     private var isRunning = false
     private var selectionAnchorID: URL?
+    private static let presentationModeDefaultsKey = "screenshoss.presentationMode"
 
     init(desktopURL: URL = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask)[0]) {
         self.desktopURL = desktopURL
+        if let storedMode = UserDefaults.standard.string(forKey: Self.presentationModeDefaultsKey),
+           let storedPresentationMode = ShelfPresentationMode(rawValue: storedMode) {
+            presentationMode = storedPresentationMode
+        } else {
+            presentationMode = .top
+        }
         let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let screenshossSupportURL = appSupport.appendingPathComponent("Screenshoss", isDirectory: true)
         let legacySupportURL = appSupport.appendingPathComponent("Shoss", isDirectory: true)
@@ -357,6 +384,13 @@ final class ScreenshotLibrary: ObservableObject {
         return orderedURLs.isEmpty ? [item.url] : orderedURLs
     }
 
+    func finishDragging(shouldCollapse: Bool) {
+        draggedItemURLs = []
+        if shouldCollapse {
+            isExpanded = false
+        }
+    }
+
     @discardableResult
     func moveDraggedItem(toFolder folderName: String?) -> Bool {
         let draggedURLs = draggedItemURLs
@@ -588,6 +622,21 @@ final class ScreenshotLibrary: ObservableObject {
         }
 
         return selectedItem.map { [$0] } ?? []
+    }
+
+    func setPresentationMode(_ mode: ShelfPresentationMode) {
+        presentationMode = mode
+    }
+
+    func cyclePresentationMode() {
+        switch presentationMode {
+        case .top:
+            presentationMode = .left
+        case .left:
+            presentationMode = .right
+        case .right:
+            presentationMode = .top
+        }
     }
 
     private func restoreSelection(afterMovingTo movedURLs: [URL]) {

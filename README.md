@@ -9,15 +9,16 @@
 
 ![Screenshoss running on macOS](docs/assets/screenshoss-hero.png)
 
-Screenshoss is a free macOS screenshot shelf. It watches for Mac screenshots, moves them out of the Desktop, and keeps them in a fast hover panel at the top of the screen.
+Screenshoss is a free macOS screenshot shelf. It watches for Mac screenshots, moves them out of the Desktop, and keeps them in a fast hover panel that can live at the top, left, or right edge of the screen.
 
 ## What It Does
 
 - Collects new macOS screenshots automatically.
 - Keeps your Desktop clean by moving screenshots into the Screenshoss screenshots folder.
-- Opens from a small notch-style shelf at the top of the screen.
+- Opens from a small notch-style shelf at the top, left, or right edge of the screen.
 - Shows recent screenshots in a compact grid.
 - Supports folders, drag-and-drop organization, rename, delete, favorite, copy, Finder reveal, and Preview open.
+- Supports multi-select with Shift-click and Command-click.
 - Includes a favorites view for screenshots you want to keep close.
 - Runs locally. No account, cloud sync, analytics, or network service is required.
 - Ships as a universal macOS app for Apple Silicon and Intel Macs.
@@ -32,7 +33,7 @@ You can also download [`dist/Screenshoss.app.zip`](dist/Screenshoss.app.zip) if 
 
 1. Download `Screenshoss.dmg`.
 2. Open the DMG.
-3. Drag `Screenshoss.app` into `Applications`.
+3. Drag `Screenshoss.app` onto the `Applications` shortcut in the installer window.
 4. Open Screenshoss.
 
 This early build is ad-hoc signed and not notarized yet, so macOS may show an extra confirmation the first time you open it. If that happens, right-click the app and choose **Open**.
@@ -57,16 +58,19 @@ The **Recent** pill shows screenshots that are still in the main Screenshots fol
 
 ## Using The Shelf
 
-- Hover the notch at the top of the screen to open the screenshot shelf.
+- Hover the notch to open the screenshot shelf.
 - Click a screenshot to select it and see details on the right.
 - Double-click a screenshot to open it in Preview.
 - Press Space while a screenshot is selected to open macOS Quick Look.
 - Shift-click to select a range of screenshots, or Command-click to add/remove individual screenshots.
+- Press Command-C to copy the current selection.
+- Press Delete or Backspace to delete the current selection.
 - Drag screenshots onto folder pills to organize them.
 - Drag one selected screenshot to move the whole selection into a folder.
 - Click `X` to hide the shelf. This does not quit Screenshoss.
 - Use the status bar camera icon to show Screenshoss again.
-- Right-click the status bar icon to open the menu with **Open Screenshoss**, **Open Screenshots Folder**, and **Quit Screenshoss**.
+- Right-click the status bar icon to open the menu with **Open Screenshoss**, **Notch Position**, **Open Screenshots Folder**, and **Quit Screenshoss**.
+- Use **Notch Position** to switch between **Top Notch**, **Left Notch**, and **Right Notch**. Screenshoss remembers the last position you picked.
 
 ## Edit Or Build From Source
 

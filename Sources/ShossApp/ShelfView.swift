@@ -7,9 +7,53 @@ struct ShelfView: View {
     @State private var hoverCollapseTask: Task<Void, Never>?
 
     var body: some View {
+        Group {
+            switch library.presentationMode {
+            case .top:
+                TopNotchShelfView(library: library)
+            case .left, .right:
+                SideNotchShelfView(library: library, side: library.presentationMode)
+            }
+        }
+        .animation(
+            .spring(response: 0.34, dampingFraction: 0.88, blendDuration: 0.08),
+            value: library.isExpanded
+        )
+        .animation(
+            .spring(response: 0.32, dampingFraction: 0.9, blendDuration: 0.08),
+            value: library.presentationMode
+        )
+        .onHover { hovering in
+            hoverCollapseTask?.cancel()
+            if hovering {
+                library.isExpanded = true
+            } else {
+                scheduleHoverCollapseCheck()
+            }
+        }
+    }
+
+    private func scheduleHoverCollapseCheck() {
+        hoverCollapseTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(260))
+            guard !Task.isCancelled else { return }
+            if library.shouldCollapseAfterHoverExit?() ?? true {
+                library.isExpanded = false
+            } else {
+                scheduleHoverCollapseCheck()
+            }
+        }
+    }
+}
+
+private struct TopNotchShelfView: View {
+    @ObservedObject var library: ScreenshotLibrary
+
+    var body: some View {
         ZStack(alignment: .top) {
             if library.isExpanded {
                 ExpandedShelfView(library: library)
+                    .zIndex(2)
                     .transition(
                         .asymmetric(
                             insertion: .scale(scale: 0.94, anchor: .top).combined(with: .opacity),
@@ -18,6 +62,7 @@ struct ShelfView: View {
                     )
             } else {
                 CollapsedNotchView()
+                    .zIndex(1)
                     .transition(
                         .asymmetric(
                             insertion: .scale(scale: 0.98, anchor: .top).combined(with: .opacity),
@@ -27,23 +72,44 @@ struct ShelfView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .animation(
-            .spring(response: 0.34, dampingFraction: 0.88, blendDuration: 0.08),
-            value: library.isExpanded
-        )
-        .onHover { hovering in
-            hoverCollapseTask?.cancel()
-            if hovering {
-                library.isExpanded = true
+    }
+}
+
+private struct SideNotchShelfView: View {
+    @ObservedObject var library: ScreenshotLibrary
+    let side: ShelfPresentationMode
+
+    var body: some View {
+        ZStack(alignment: alignment) {
+            if library.isExpanded {
+                SideExpandedShelfView(library: library)
+                    .zIndex(2)
+                    .transition(
+                        .asymmetric(
+                            insertion: .scale(scale: 0.96, anchor: transitionAnchor).combined(with: .opacity),
+                            removal: .scale(scale: 0.98, anchor: transitionAnchor).combined(with: .opacity)
+                        )
+                    )
             } else {
-                let task = Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(260))
-                    guard !Task.isCancelled else { return }
-                    library.isExpanded = false
-                }
-                hoverCollapseTask = task
+                CollapsedSideNotchView(side: side)
+                    .zIndex(1)
+                    .transition(
+                        .asymmetric(
+                            insertion: .scale(scale: 0.98, anchor: transitionAnchor).combined(with: .opacity),
+                            removal: .opacity
+                        )
+                    )
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
+    }
+
+    private var alignment: Alignment {
+        side == .left ? .leading : .trailing
+    }
+
+    private var transitionAnchor: UnitPoint {
+        side == .left ? .leading : .trailing
     }
 }
 
@@ -73,6 +139,32 @@ private struct CollapsedNotchView: View {
     @State private var iconVisible = false
 
     var body: some View {
+        ZStack {
+            CollapsedNotchSilhouette()
+
+            Image(systemName: "camera.viewfinder")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(.white)
+                .frame(width: 132, height: 34)
+                .opacity(iconVisible ? 1 : 0)
+                .scaleEffect(iconVisible ? 1 : 0.5)
+        }
+        .frame(width: 160, height: 34)
+        .onAppear {
+            if !Self.hasAnimatedIconEntrance {
+                Self.hasAnimatedIconEntrance = true
+                withAnimation(.easeOut(duration: 0.3).delay(0.22)) {
+                    iconVisible = true
+                }
+            } else {
+                iconVisible = true
+            }
+        }
+    }
+}
+
+private struct CollapsedNotchSilhouette: View {
+    var body: some View {
         ZStack(alignment: .top) {
             UnevenRoundedRectangle(
                 cornerRadii: RectangleCornerRadii(
@@ -97,19 +189,33 @@ private struct CollapsedNotchView: View {
                     .frame(width: 14, height: 14)
             }
             .frame(height: 14, alignment: .top)
+        }
+        .frame(width: 160, height: 34)
+    }
+}
+
+private struct CollapsedSideNotchView: View {
+    private static var hasAnimatedIconEntrance = false
+    let side: ShelfPresentationMode
+    @State private var iconVisible = false
+
+    var body: some View {
+        ZStack {
+            CollapsedNotchSilhouette()
+                .rotationEffect(.degrees(side == .left ? -90 : 90))
+                .frame(width: 34, height: 160)
 
             Image(systemName: "camera.viewfinder")
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(.white)
-                .frame(width: 132, height: 34)
                 .opacity(iconVisible ? 1 : 0)
                 .scaleEffect(iconVisible ? 1 : 0.5)
         }
-        .frame(width: 160, height: 34)
+        .frame(width: 34, height: 160)
         .onAppear {
             if !Self.hasAnimatedIconEntrance {
                 Self.hasAnimatedIconEntrance = true
-                withAnimation(.easeOut(duration: 0.3).delay(0.22)) {
+                withAnimation(.easeOut(duration: 0.3).delay(0.16)) {
                     iconVisible = true
                 }
             } else {
@@ -119,7 +225,44 @@ private struct CollapsedNotchView: View {
     }
 }
 
-private struct ExpandedShelfView: View {
+private struct SideExpandedShelfView: View {
+    @ObservedObject var library: ScreenshotLibrary
+
+    var body: some View {
+        SideShelfContentView(library: library)
+            .padding(14)
+            .background { SideExpandedShelfBackground() }
+            .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+    }
+}
+
+private struct SideExpandedShelfBackground: View {
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 28, style: .continuous)
+
+        ZStack {
+            VisualEffectBackground(material: .hudWindow)
+                .clipShape(shape)
+
+            shape
+                .fill(.black.opacity(0.78))
+
+            shape
+                .fill(
+                    LinearGradient(
+                        colors: [.white.opacity(0.08), .clear, .black.opacity(0.2)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+
+            shape
+                .strokeBorder(.white.opacity(0.08), lineWidth: 1)
+        }
+    }
+}
+
+private struct ShelfContentView: View {
     @ObservedObject var library: ScreenshotLibrary
 
     var body: some View {
@@ -139,10 +282,35 @@ private struct ExpandedShelfView: View {
             }
             .frame(maxHeight: .infinity)
         }
-        .padding(14)
-        .background { ExpandedShelfBackground() }
         .foregroundStyle(.white)
         .frame(maxHeight: .infinity, alignment: .top)
+    }
+}
+
+private struct SideShelfContentView: View {
+    @ObservedObject var library: ScreenshotLibrary
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SideHeaderView(library: library)
+                .zIndex(10)
+
+            ScreenshotGridView(library: library, columnCount: 2)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.bottom, 12)
+        }
+        .foregroundStyle(.white)
+        .frame(maxHeight: .infinity, alignment: .top)
+    }
+}
+
+private struct ExpandedShelfView: View {
+    @ObservedObject var library: ScreenshotLibrary
+
+    var body: some View {
+        ShelfContentView(library: library)
+        .padding(14)
+        .background { ExpandedShelfBackground() }
     }
 }
 
@@ -338,14 +506,93 @@ private struct HeaderView: View {
     }
 }
 
+private struct SideHeaderView: View {
+    @ObservedObject var library: ScreenshotLibrary
+    @FocusState private var searchFocused: Bool
+    @State private var searchHovered = false
+    @State private var refreshRotation: Double = 0
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.white.opacity(searchFocused ? 0.65 : 0.45))
+                    TextField("Search screenshots", text: $library.searchText)
+                        .textFieldStyle(.plain)
+                        .foregroundStyle(.white)
+                        .font(.system(size: 14, weight: .regular))
+                        .focused($searchFocused)
+                }
+                .padding(.leading, 12)
+                .padding(.trailing, 12)
+                .frame(height: 36)
+                .frame(maxWidth: .infinity)
+                .background(
+                    colorForSearchBackground(),
+                    in: Capsule()
+                )
+                .overlay(
+                    Capsule()
+                        .stroke(.white.opacity(searchFocused ? 0.18 : 0), lineWidth: 1)
+                )
+                .onHover { searchHovered = $0 }
+
+                CircleHeaderButton(
+                    systemName: library.showingFavoritesOnly ? "bookmark.fill" : "bookmark",
+                    isSelected: library.showingFavoritesOnly,
+                    tooltip: library.showingFavoritesOnly ? "Show All" : "Show Favs"
+                ) {
+                    library.toggleFavoritesFilter()
+                }
+                .accessibilityLabel(library.showingFavoritesOnly ? "Show all screenshots" : "Show favorites")
+
+                CircleHeaderButton(systemName: "xmark", tooltip: "Hide Screenshoss") {
+                    library.closeAction?()
+                }
+                .accessibilityLabel("Hide Screenshoss")
+            }
+
+            HStack(spacing: 8) {
+                FolderFilterStripView(library: library, maxFolderScrollWidth: 356, showsAddButton: false)
+
+                FolderAddButton(library: library)
+
+                CircleHeaderButton(systemName: "arrow.clockwise", rotationDegrees: refreshRotation, tooltip: "Refresh folder") {
+                    withAnimation(.easeInOut(duration: 0.45)) {
+                        refreshRotation += 360
+                    }
+                    library.refresh()
+                }
+                .accessibilityLabel("Refresh screenshots")
+
+                CircleHeaderButton(systemName: "folder", tooltip: "Screenshoss folder") {
+                    library.openStorageFolder()
+                }
+                .accessibilityLabel("Open screenshots folder")
+            }
+        }
+    }
+
+    private func colorForSearchBackground() -> Color {
+        if searchFocused {
+            return .white.opacity(0.15)
+        }
+        if searchHovered {
+            return .white.opacity(0.12)
+        }
+        return .white.opacity(0.08)
+    }
+}
+
 private struct FolderFilterStripView: View {
     @ObservedObject var library: ScreenshotLibrary
+    var maxFolderScrollWidth: CGFloat = 560
+    var showsAddButton = true
     @State private var bumpedFolderName: String?
-    @State private var addButtonHovered = false
     @State private var folderContentWidth: CGFloat = 1
     @State private var folderContentMinX: CGFloat = 0
 
-    private let maxFolderScrollWidth: CGFloat = 560
     private let folderFadeWidth: CGFloat = 64
     private let scrollCoordinateSpace = "FolderFilterScroll"
 
@@ -435,20 +682,12 @@ private struct FolderFilterStripView: View {
             .onPreferenceChange(FolderContentWidthKey.self) { folderContentWidth = $0 }
             .onPreferenceChange(FolderContentMinXKey.self) { folderContentMinX = $0 }
 
-            Button(action: library.createFolder) {
-                Image(systemName: "plus")
-                    .font(.system(size: 14, weight: .medium))
-                    .frame(width: 34, height: 34)
-                    .contentShape(Circle())
+            if showsAddButton {
+                FolderAddButton(library: library)
             }
-            .buttonStyle(FolderAddButtonStyle(isHovered: addButtonHovered))
-            .onHover { addButtonHovered = $0 }
-            .accessibilityLabel("Create folder")
-            .panelTooltip("Create folder", isPresented: addButtonHovered, yOffset: 42)
-            .zIndex(addButtonHovered ? 50 : 0)
         }
         .frame(height: 42)
-        .frame(width: scrollWidth + 42, alignment: .leading)
+        .frame(width: scrollWidth + (showsAddButton ? 42 : 0), alignment: .leading)
     }
 
     private var recentBumpID: String {
@@ -556,6 +795,25 @@ private struct FolderPillButtonStyle: ButtonStyle {
     }
 }
 
+private struct FolderAddButton: View {
+    @ObservedObject var library: ScreenshotLibrary
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: library.createFolder) {
+            Image(systemName: "plus")
+                .font(.system(size: 14, weight: .medium))
+                .frame(width: 34, height: 34)
+                .contentShape(Circle())
+        }
+        .buttonStyle(FolderAddButtonStyle(isHovered: isHovered))
+        .onHover { isHovered = $0 }
+        .accessibilityLabel("Create folder")
+        .panelTooltip("Create folder", isPresented: isHovered, yOffset: 42)
+        .zIndex(isHovered ? 50 : 0)
+    }
+}
+
 private struct FolderAddButtonStyle: ButtonStyle {
     let isHovered: Bool
 
@@ -601,8 +859,8 @@ private struct CircleHeaderButton: View {
 
 private struct ScreenshotGridView: View {
     @ObservedObject var library: ScreenshotLibrary
+    var columnCount = 4
 
-    private let columnCount = 4
     private let cardSpacing: CGFloat = 10
     private let innerHorizontalPadding: CGFloat = 4
 
@@ -637,7 +895,13 @@ private struct ScreenshotGridView: View {
                                 onToggleFavorite: { library.toggleFavorite(item) },
                                 onSelect: selectItem,
                                 onOpen: { library.open(item) },
-                                dragURLs: { library.dragURLs(startingFrom: item) }
+                                dragURLs: { library.dragURLs(startingFrom: item) },
+                                onDragMovedOutside: {
+                                    library.isExpanded = false
+                                },
+                                onDragEnded: { endedInsidePanel in
+                                    library.finishDragging(shouldCollapse: !endedInsidePanel)
+                                }
                             )
                             .frame(width: columnWidth)
                             .contextMenu {
@@ -696,6 +960,8 @@ private struct ScreenshotCardView: View {
     let onSelect: (NSEvent.ModifierFlags) -> Void
     let onOpen: () -> Void
     let dragURLs: () -> [URL]
+    let onDragMovedOutside: () -> Void
+    let onDragEnded: (Bool) -> Void
     @State private var isHovered = false
 
     var body: some View {
@@ -758,7 +1024,9 @@ private struct ScreenshotCardView: View {
                 ScreenshotMultiDragSourceView(
                     dragURLs: dragURLs,
                     onClick: onSelect,
-                    onDoubleClick: onOpen
+                    onDoubleClick: onOpen,
+                    onDragMovedOutside: onDragMovedOutside,
+                    onDragEnded: onDragEnded
                 )
             }
 
@@ -801,12 +1069,16 @@ private struct ScreenshotMultiDragSourceView: NSViewRepresentable {
     let dragURLs: () -> [URL]
     let onClick: (NSEvent.ModifierFlags) -> Void
     let onDoubleClick: () -> Void
+    let onDragMovedOutside: () -> Void
+    let onDragEnded: (Bool) -> Void
 
     func makeNSView(context: Context) -> ScreenshotMultiDragSourceNSView {
         let view = ScreenshotMultiDragSourceNSView()
         view.dragURLs = dragURLs
         view.onClick = onClick
         view.onDoubleClick = onDoubleClick
+        view.onDragMovedOutside = onDragMovedOutside
+        view.onDragEnded = onDragEnded
         return view
     }
 
@@ -814,6 +1086,8 @@ private struct ScreenshotMultiDragSourceView: NSViewRepresentable {
         view.dragURLs = dragURLs
         view.onClick = onClick
         view.onDoubleClick = onDoubleClick
+        view.onDragMovedOutside = onDragMovedOutside
+        view.onDragEnded = onDragEnded
     }
 }
 
@@ -821,9 +1095,12 @@ private final class ScreenshotMultiDragSourceNSView: NSView, NSDraggingSource {
     var dragURLs: (() -> [URL])?
     var onClick: ((NSEvent.ModifierFlags) -> Void)?
     var onDoubleClick: (() -> Void)?
+    var onDragMovedOutside: (() -> Void)?
+    var onDragEnded: ((Bool) -> Void)?
 
     private var mouseDownEvent: NSEvent?
     private var didStartDrag = false
+    private var didCollapseForExternalDrag = false
     private let dragStartThreshold: CGFloat = 4
 
     override var isFlipped: Bool { true }
@@ -835,6 +1112,7 @@ private final class ScreenshotMultiDragSourceNSView: NSView, NSDraggingSource {
     override func mouseDown(with event: NSEvent) {
         mouseDownEvent = event
         didStartDrag = false
+        didCollapseForExternalDrag = false
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -871,11 +1149,44 @@ private final class ScreenshotMultiDragSourceNSView: NSView, NSDraggingSource {
     }
 
     func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
-        context == .outsideApplication ? .copy : [.copy, .move]
+        if context == .outsideApplication {
+            collapseForExternalDragIfNeeded()
+            return .copy
+        }
+        return [.copy, .move]
     }
 
     func ignoreModifierKeys(for session: NSDraggingSession) -> Bool {
         false
+    }
+
+    func draggingSession(_ session: NSDraggingSession, willBeginAt screenPoint: NSPoint) {
+        didCollapseForExternalDrag = false
+    }
+
+    func draggingSession(_ session: NSDraggingSession, movedTo screenPoint: NSPoint) {
+        guard !didCollapseForExternalDrag else { return }
+        guard !isPointInsidePanel(screenPoint, tolerance: 10) else { return }
+
+        collapseForExternalDragIfNeeded()
+    }
+
+    func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        let endedInsidePanel = isPointInsidePanel(screenPoint) && !didCollapseForExternalDrag
+        onDragEnded?(endedInsidePanel)
+    }
+
+    private func isPointInsidePanel(_ screenPoint: NSPoint, tolerance: CGFloat = 0) -> Bool {
+        guard let frame = window?.frame else { return false }
+        return frame.insetBy(dx: -tolerance, dy: -tolerance).contains(screenPoint)
+    }
+
+    private func collapseForExternalDragIfNeeded() {
+        guard !didCollapseForExternalDrag else { return }
+        didCollapseForExternalDrag = true
+        DispatchQueue.main.async { [weak self] in
+            self?.onDragMovedOutside?()
+        }
     }
 
     private func hasMovedPastDragThreshold(_ event: NSEvent) -> Bool {

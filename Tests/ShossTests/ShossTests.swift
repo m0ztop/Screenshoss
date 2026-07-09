@@ -28,6 +28,11 @@ final class LooksLikeMacScreenshotTests: XCTestCase {
         XCTAssertFalse(ScreenshotItem.looksLikeMacScreenshot(url))
     }
 
+    func testRejectsOrdinaryHeicImageName() {
+        let url = URL(fileURLWithPath: "/tmp/IMG_8237.HEIC")
+        XCTAssertFalse(ScreenshotItem.looksLikeMacScreenshot(url))
+    }
+
     func testAcceptsRenamedImageInsideStorage() {
         let url = URL(fileURLWithPath: "/tmp/client-wireframe.png")
         XCTAssertTrue(ScreenshotItem.isSupportedImageFile(url))

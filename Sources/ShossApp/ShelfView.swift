@@ -230,7 +230,8 @@ private struct SideExpandedShelfView: View {
 
     var body: some View {
         SideShelfContentView(library: library)
-            .padding(14)
+            .padding(.top, 14)
+            .padding(.horizontal, 14)
             .background { SideExpandedShelfBackground() }
             .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
     }
@@ -297,7 +298,6 @@ private struct SideShelfContentView: View {
 
             ScreenshotGridView(library: library, columnCount: 2)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding(.bottom, 12)
         }
         .foregroundStyle(.white)
         .frame(maxHeight: .infinity, alignment: .top)

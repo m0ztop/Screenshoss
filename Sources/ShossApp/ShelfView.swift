@@ -383,7 +383,7 @@ private struct PanelTooltipBubble: View {
                     VisualEffectBackground(material: .hudWindow)
                         .clipShape(Capsule())
                     Capsule()
-                        .fill(.black.opacity(0.42))
+                        .fill(.black.opacity(0.82))
                 }
             }
             .overlay(
@@ -395,22 +395,44 @@ private struct PanelTooltipBubble: View {
     }
 }
 
+private enum PanelTooltipPlacement {
+    case below
+    case leading
+}
+
 private struct PanelTooltipModifier: ViewModifier {
     let text: String?
     let isPresented: Bool
+    let placement: PanelTooltipPlacement
     let xOffset: CGFloat
     let yOffset: CGFloat
 
     func body(content: Content) -> some View {
-        content.overlay(alignment: .center) {
+        content.overlay(alignment: placement == .leading ? .trailing : .center) {
             if isPresented, let text {
-                PanelTooltipBubble(text: text)
-                    .offset(x: xOffset, y: yOffset)
+                tooltip(text)
                     .transition(.scale(scale: 0.96).combined(with: .opacity))
                     .zIndex(100)
             }
         }
         .animation(.easeOut(duration: 0.12), value: isPresented)
+    }
+
+    @ViewBuilder
+    private func tooltip(_ text: String) -> some View {
+        switch placement {
+        case .below:
+            PanelTooltipBubble(text: text)
+                .offset(x: xOffset, y: yOffset)
+        case .leading:
+            HStack(spacing: 8) {
+                PanelTooltipBubble(text: text)
+                Color.clear
+                    .frame(width: 32, height: 1)
+            }
+            .fixedSize()
+            .offset(x: xOffset, y: yOffset)
+        }
     }
 }
 
@@ -418,6 +440,7 @@ private extension View {
     func panelTooltip(
         _ text: String?,
         isPresented: Bool,
+        placement: PanelTooltipPlacement = .below,
         xOffset: CGFloat = 0,
         yOffset: CGFloat
     ) -> some View {
@@ -425,6 +448,7 @@ private extension View {
             PanelTooltipModifier(
                 text: text,
                 isPresented: isPresented,
+                placement: placement,
                 xOffset: xOffset,
                 yOffset: yOffset
             )
@@ -541,13 +565,14 @@ private struct SideHeaderView: View {
                 CircleHeaderButton(
                     systemName: library.showingFavoritesOnly ? "bookmark.fill" : "bookmark",
                     isSelected: library.showingFavoritesOnly,
-                    tooltip: library.showingFavoritesOnly ? "Show All" : "Show Favs"
+                    tooltip: library.showingFavoritesOnly ? "Show All" : "Show Favs",
+                    tooltipPlacement: .leading
                 ) {
                     library.toggleFavoritesFilter()
                 }
                 .accessibilityLabel(library.showingFavoritesOnly ? "Show all screenshots" : "Show favorites")
 
-                CircleHeaderButton(systemName: "xmark", tooltip: "Hide Screenshoss") {
+                CircleHeaderButton(systemName: "xmark", tooltip: "Hide Screenshoss", tooltipPlacement: .leading) {
                     library.closeAction?()
                 }
                 .accessibilityLabel("Hide Screenshoss")
@@ -556,9 +581,14 @@ private struct SideHeaderView: View {
             HStack(spacing: 8) {
                 FolderFilterStripView(library: library, maxFolderScrollWidth: 356, showsAddButton: false)
 
-                FolderAddButton(library: library)
+                FolderAddButton(library: library, tooltipPlacement: .leading)
 
-                CircleHeaderButton(systemName: "arrow.clockwise", rotationDegrees: refreshRotation, tooltip: "Refresh folder") {
+                CircleHeaderButton(
+                    systemName: "arrow.clockwise",
+                    rotationDegrees: refreshRotation,
+                    tooltip: "Refresh folder",
+                    tooltipPlacement: .leading
+                ) {
                     withAnimation(.easeInOut(duration: 0.45)) {
                         refreshRotation += 360
                     }
@@ -566,7 +596,7 @@ private struct SideHeaderView: View {
                 }
                 .accessibilityLabel("Refresh screenshots")
 
-                CircleHeaderButton(systemName: "folder", tooltip: "Screenshoss folder") {
+                CircleHeaderButton(systemName: "folder", tooltip: "Screenshoss folder", tooltipPlacement: .leading) {
                     library.openStorageFolder()
                 }
                 .accessibilityLabel("Open screenshots folder")
@@ -797,6 +827,7 @@ private struct FolderPillButtonStyle: ButtonStyle {
 
 private struct FolderAddButton: View {
     @ObservedObject var library: ScreenshotLibrary
+    var tooltipPlacement: PanelTooltipPlacement = .below
     @State private var isHovered = false
 
     var body: some View {
@@ -809,7 +840,12 @@ private struct FolderAddButton: View {
         .buttonStyle(FolderAddButtonStyle(isHovered: isHovered))
         .onHover { isHovered = $0 }
         .accessibilityLabel("Create folder")
-        .panelTooltip("Create folder", isPresented: isHovered, yOffset: 42)
+        .panelTooltip(
+            "Create folder",
+            isPresented: isHovered,
+            placement: tooltipPlacement,
+            yOffset: tooltipPlacement == .below ? 42 : 0
+        )
         .zIndex(isHovered ? 50 : 0)
     }
 }
@@ -842,6 +878,7 @@ private struct CircleHeaderButton: View {
     var isSelected = false
     var rotationDegrees: Double = 0
     var tooltip: String?
+    var tooltipPlacement: PanelTooltipPlacement = .below
     let action: () -> Void
     @State private var isHovered = false
 
@@ -852,7 +889,12 @@ private struct CircleHeaderButton: View {
         }
         .buttonStyle(CircleButtonStyle(isHovered: isHovered, isSelected: isSelected))
         .onHover { isHovered = $0 }
-        .panelTooltip(tooltip, isPresented: isHovered, yOffset: 42)
+        .panelTooltip(
+            tooltip,
+            isPresented: isHovered,
+            placement: tooltipPlacement,
+            yOffset: tooltipPlacement == .below ? 42 : 0
+        )
         .zIndex(isHovered ? 50 : 0)
     }
 }

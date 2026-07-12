@@ -14,7 +14,8 @@ let package = Package(
             path: "Sources/ShossApp",
             linkerSettings: [
                 .linkedFramework("QuickLookUI"),
-                .linkedFramework("AVFoundation")
+                .linkedFramework("AVFoundation"),
+                .linkedFramework("ServiceManagement")
             ]
         ),
         .testTarget(

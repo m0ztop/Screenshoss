@@ -36,7 +36,7 @@ You can also download [`dist/Screenshoss.app.zip`](dist/Screenshoss.app.zip) if 
 3. Drag `Screenshoss.app` onto the `Applications` shortcut in the installer window.
 4. Open Screenshoss.
 
-This early build is ad-hoc signed and not notarized yet, so macOS may show an extra confirmation the first time you open it. If that happens, right-click the app and choose **Open**.
+The packaged release is signed with a Developer ID certificate and notarized by Apple.
 
 ## How It Works
 
@@ -71,6 +71,7 @@ The **Recent** pill shows screenshots that are still in the main Screenshots fol
 - Use the status bar camera icon to show Screenshoss again.
 - Right-click the status bar icon to open the menu with **Open Screenshoss**, **Notch Position**, **Open Screenshots Folder**, and **Quit Screenshoss**.
 - Use **Notch Position** to switch between **Top Notch**, **Left Notch**, and **Right Notch**. Screenshoss remembers the last position you picked.
+- When installed in `Applications`, Screenshoss uses the native macOS login-item service to start automatically after you sign in.
 
 ## Edit Or Build From Source
 

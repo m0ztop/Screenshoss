@@ -1,6 +1,7 @@
 import AppKit
 import AVFoundation
 import Foundation
+import ServiceManagement
 
 @MainActor
 private final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -24,7 +25,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         panelController.show()
 
         setupStatusItem()
-        registerLaunchAgentIfNeeded()
+        registerLoginItemIfNeeded()
     }
 
     private func terminateIfAnotherInstanceIsRunning() -> Bool {
@@ -167,58 +168,69 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-private func registerLaunchAgentIfNeeded() {
+private func registerLoginItemIfNeeded() {
     guard Bundle.main.bundlePath.hasSuffix(".app") else {
         return
     }
-
-    guard let executablePath = Bundle.main.executablePath else {
-        print("[Screenshoss] Could not determine executable path for LaunchAgent")
+    guard isInstalledApplication(Bundle.main.bundleURL) else {
         return
     }
 
-    let agentDir = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Library/LaunchAgents")
-    let plistURL = agentDir.appendingPathComponent("com.mert.screenshoss.plist")
-    let legacyPlistURL = agentDir.appendingPathComponent("com.mert.shoss.plist")
+    removeLegacyLaunchAgents()
 
-    do {
-        try FileManager.default.createDirectory(at: agentDir, withIntermediateDirectories: true)
-    } catch {
-        print("[Screenshoss] Could not create LaunchAgents directory: \(error)")
+    let service = SMAppService.mainApp
+    switch service.status {
+    case .enabled, .requiresApproval:
+        return
+    case .notRegistered, .notFound:
+        do {
+            try service.register()
+        } catch {
+            print("[Screenshoss] Could not register the login item: \(error)")
+        }
+    @unknown default:
         return
     }
+}
 
-    let plist: [String: Any] = [
-        "Label": "com.mert.screenshoss",
-        "Program": executablePath,
-        "RunAtLoad": true,
-        "LimitLoadToSessionType": "Aqua",
+private func isInstalledApplication(_ bundleURL: URL) -> Bool {
+    let bundlePath = bundleURL.standardizedFileURL.path
+    let applicationDirectories = [
+        URL(fileURLWithPath: "/Applications", isDirectory: true),
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Applications", isDirectory: true),
     ]
 
-    do {
-        let data = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
-        try data.write(to: plistURL)
-    } catch {
-        print("[Screenshoss] Could not write LaunchAgent plist: \(error)")
-        return
+    return applicationDirectories.contains { directoryURL in
+        bundlePath.hasPrefix(directoryURL.standardizedFileURL.path + "/")
     }
+}
 
-    if legacyPlistURL != plistURL {
-        try? FileManager.default.removeItem(at: legacyPlistURL)
+private func removeLegacyLaunchAgents() {
+    let launchAgentsURL = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/LaunchAgents")
+    let legacyURLs = [
+        launchAgentsURL.appendingPathComponent("com.mert.screenshoss.plist"),
+        launchAgentsURL.appendingPathComponent("com.mert.shoss.plist"),
+    ]
+
+    for url in legacyURLs where FileManager.default.fileExists(atPath: url.path) {
+        bootOutLegacyLaunchAgent(at: url)
+        try? FileManager.default.removeItem(at: url)
     }
+}
 
-    let uid = getuid()
+private func bootOutLegacyLaunchAgent(at plistURL: URL) {
     let task = Process()
     task.executableURL = URL(fileURLWithPath: "/bin/launchctl")
-    task.arguments = ["bootstrap", "gui/\(uid)", plistURL.path]
+    task.arguments = ["bootout", "gui/\(getuid())", plistURL.path]
     task.standardOutput = FileHandle.nullDevice
     task.standardError = FileHandle.nullDevice
     do {
         try task.run()
         task.waitUntilExit()
     } catch {
-        print("[Screenshoss] Could not bootstrap LaunchAgent: \(error)")
+        print("[Screenshoss] Could not remove a legacy LaunchAgent: \(error)")
     }
 }
 

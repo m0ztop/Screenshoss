@@ -1,7 +1,8 @@
-import AppKit
+import CoreGraphics
 import Foundation
+import ImageIO
 
-struct ScreenshotItem: Identifiable, Hashable {
+struct ScreenshotItem: Identifiable, Hashable, Sendable {
     let id: URL
     let url: URL
     let name: String
@@ -38,21 +39,27 @@ struct ScreenshotItem: Identifiable, Hashable {
         storageRootURL: URL? = nil,
         favoriteRelativePaths: Set<String> = []
     ) -> ScreenshotItem? {
-        let resourceKeys: Set<URLResourceKey> = [.creationDateKey, .fileSizeKey, .isRegularFileKey]
+        let resourceKeys: Set<URLResourceKey> = [
+            .creationDateKey,
+            .contentModificationDateKey,
+            .fileSizeKey,
+            .isRegularFileKey,
+            .isSymbolicLinkKey,
+        ]
         guard let values = try? url.resourceValues(forKeys: resourceKeys),
-              values.isRegularFile == true else {
+              values.isRegularFile == true,
+              values.isSymbolicLink != true else {
             return nil
         }
 
-        let image = NSImage(contentsOf: url)
         let relativePath = storageRootURL.flatMap { Self.relativePath(for: url, storageRootURL: $0) }
         return ScreenshotItem(
             id: url,
             url: url,
             name: url.lastPathComponent,
-            createdAt: values.creationDate ?? Date.distantPast,
+            createdAt: values.creationDate ?? values.contentModificationDate ?? Date.distantPast,
             fileSize: Int64(values.fileSize ?? 0),
-            dimensions: image?.pixelSize,
+            dimensions: imageDimensions(at: url),
             folderName: relativePath.flatMap(folderName(forRelativePath:)),
             isFavorite: relativePath.map { favoriteRelativePaths.contains($0) } ?? false
         )
@@ -70,9 +77,21 @@ struct ScreenshotItem: Identifiable, Hashable {
         guard parts.count > 1 else { return nil }
         return String(parts[0])
     }
+
+    private static func imageDimensions(at url: URL) -> CGSize? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil)
+                as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? NSNumber,
+              let height = properties[kCGImagePropertyPixelHeight] as? NSNumber else {
+            return nil
+        }
+
+        return CGSize(width: width.doubleValue, height: height.doubleValue)
+    }
 }
 
-struct ScreenshotFolder: Identifiable, Hashable {
+struct ScreenshotFolder: Identifiable, Hashable, Sendable {
     let name: String
     let url: URL
     let count: Int
@@ -98,14 +117,4 @@ extension ScreenshotItem {
     }
 
     private static let supportedImageExtensions = ["png", "jpg", "jpeg", "heic", "tiff"]
-}
-
-private extension NSImage {
-    var pixelSize: CGSize? {
-        guard let representation = representations.first else {
-            return nil
-        }
-
-        return CGSize(width: representation.pixelsWide, height: representation.pixelsHigh)
-    }
 }

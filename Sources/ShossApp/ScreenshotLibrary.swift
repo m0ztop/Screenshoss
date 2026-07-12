@@ -46,17 +46,25 @@ final class ScreenshotLibrary: ObservableObject {
 
     private let desktopURL: URL
     private let storageURL: URL
-    private let favoritesURL: URL
     private let fileManager = FileManager.default
-    private var favoriteRelativePaths: Set<String> = []
+    private let storageService: ScreenshotStorageService
+    private let importService: ScreenshotImportService
+    private let favoritesStore: ScreenshotFavoritesStore
+    private var selectionService = ScreenshotSelectionService()
     private var desktopMonitor: DirectoryMonitor?
     private var storageMonitor: DirectoryMonitor?
+    private var subfolderMonitors: [URL: DirectoryMonitor] = [:]
     private var refreshTask: Task<Void, Never>?
+    private var refreshGeneration = 0
     private var isRunning = false
-    private var selectionAnchorID: URL?
+    private var pendingSelectionURLs: [URL]?
     private static let presentationModeDefaultsKey = "screenshoss.presentationMode"
 
-    init(desktopURL: URL = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask)[0]) {
+    init(
+        desktopURL: URL = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask)[0],
+        storageURL customStorageURL: URL? = nil,
+        favoritesURL customFavoritesURL: URL? = nil
+    ) {
         self.desktopURL = desktopURL
         if let storedMode = UserDefaults.standard.string(forKey: Self.presentationModeDefaultsKey),
            let storedPresentationMode = ShelfPresentationMode(rawValue: storedMode) {
@@ -64,17 +72,32 @@ final class ScreenshotLibrary: ObservableObject {
         } else {
             presentationMode = .top
         }
-        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let screenshossSupportURL = appSupport.appendingPathComponent("Screenshoss", isDirectory: true)
-        let legacySupportURL = appSupport.appendingPathComponent("Shoss", isDirectory: true)
-        Self.migrateLegacySupportFolderIfNeeded(
-            fileManager: fileManager,
-            legacyURL: legacySupportURL,
-            currentURL: screenshossSupportURL
+        let resolvedStorageURL: URL
+        let resolvedFavoritesURL: URL
+        if let customStorageURL {
+            resolvedStorageURL = customStorageURL
+            resolvedFavoritesURL = customFavoritesURL
+                ?? customStorageURL.deletingLastPathComponent().appendingPathComponent("favorites.json")
+        } else {
+            let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            let supportURL = appSupport.appendingPathComponent("Screenshoss", isDirectory: true)
+            let legacyURL = appSupport.appendingPathComponent("Shoss", isDirectory: true)
+            ScreenshotStorageService.migrateLegacyFolderIfNeeded(
+                legacyURL: legacyURL,
+                currentURL: supportURL
+            )
+            resolvedStorageURL = supportURL.appendingPathComponent("Screenshots", isDirectory: true)
+            resolvedFavoritesURL = customFavoritesURL
+                ?? supportURL.appendingPathComponent("favorites.json")
+        }
+
+        storageURL = resolvedStorageURL
+        storageService = ScreenshotStorageService(storageURL: resolvedStorageURL)
+        importService = ScreenshotImportService(
+            desktopURL: desktopURL,
+            storageURL: resolvedStorageURL
         )
-        storageURL = screenshossSupportURL.appendingPathComponent("Screenshots", isDirectory: true)
-        favoritesURL = screenshossSupportURL.appendingPathComponent("favorites.json")
-        loadFavoritePaths()
+        favoritesStore = ScreenshotFavoritesStore(fileURL: resolvedFavoritesURL)
     }
 
     var filteredItems: [ScreenshotItem] {
@@ -107,7 +130,12 @@ final class ScreenshotLibrary: ObservableObject {
     func start() {
         guard !isRunning else { return }
         isRunning = true
-        ensureStorageDirectory()
+        do {
+            try storageService.ensureDirectory()
+        } catch {
+            runErrorAlert(error)
+            return
+        }
         refresh()
         desktopMonitor = DirectoryMonitor(directoryURL: desktopURL) { [weak self] in
             Task { @MainActor in
@@ -124,22 +152,18 @@ final class ScreenshotLibrary: ObservableObject {
     }
 
     func refresh() {
-        let pending = importScreenshotsFromDesktop()
-        scanStorage()
-        if pending {
-            scheduleRefresh()
-        }
+        scheduleRefresh(delayMilliseconds: 0)
     }
 
     func select(_ item: ScreenshotItem, extendingSelection: Bool = false, togglingSelection: Bool = false) {
         if extendingSelection {
-            selectRange(through: item)
-            selectedItem = item
+            selectionService.selectRange(through: item, in: filteredItems)
         } else if togglingSelection {
-            toggleSelection(of: item)
+            selectionService.toggle(item, in: filteredItems)
         } else {
             setSingleSelection(item)
         }
+        publishSelection()
         isExpanded = true
     }
 
@@ -160,13 +184,12 @@ final class ScreenshotLibrary: ObservableObject {
 
     func toggleFavorite(_ item: ScreenshotItem) {
         guard let relativePath = relativePath(for: item.url) else { return }
-        if favoriteRelativePaths.contains(relativePath) {
-            favoriteRelativePaths.remove(relativePath)
-        } else {
-            favoriteRelativePaths.insert(relativePath)
+        do {
+            try favoritesStore.toggle(relativePath)
+            refresh()
+        } catch {
+            runErrorAlert(error)
         }
-        saveFavoritePaths()
-        scanStorage()
     }
 
     @discardableResult
@@ -240,18 +263,14 @@ final class ScreenshotLibrary: ObservableObject {
                 deletedIDs.insert(item.id)
             }
 
-            selectedItemIDs.subtract(deletedIDs)
-            if let selectedItem, deletedIDs.contains(selectedItem.id) {
-                self.selectedItem = nil
-            }
+            selectionService.remove(ids: deletedIDs)
+            publishSelection()
             refresh()
             return true
         } catch {
             if !deletedIDs.isEmpty {
-                selectedItemIDs.subtract(deletedIDs)
-                if let selectedItem, deletedIDs.contains(selectedItem.id) {
-                    self.selectedItem = nil
-                }
+                selectionService.remove(ids: deletedIDs)
+                publishSelection()
                 refresh()
             }
             runErrorAlert(error)
@@ -356,12 +375,8 @@ final class ScreenshotLibrary: ObservableObject {
             if selectedFolderName == folder.name {
                 selectedFolderName = nil
             }
-            if let selectedItem, selectedItem.folderName == folder.name {
-                self.selectedItem = nil
-            }
-            selectedItemIDs = selectedItemIDs.filter { id in
-                items.first(where: { $0.id == id })?.folderName != folder.name
-            }
+            selectionService.removeItems(inFolder: folder.name, from: items)
+            publishSelection()
             refresh()
         } catch {
             runErrorAlert(error)
@@ -426,17 +441,24 @@ final class ScreenshotLibrary: ObservableObject {
         var movedURLs: [URL] = []
         do {
             for item in movableItems {
-                let destinationURL = uniqueDestinationURL(for: item.name, in: destinationDirectory)
+                let destinationURL = storageService.uniqueDestinationURL(
+                    for: item.name,
+                    in: destinationDirectory
+                )
                 try fileManager.moveItem(at: item.url, to: destinationURL)
                 updateFavoritePath(from: item.url, to: destinationURL)
                 movedURLs.append(destinationURL)
             }
+            pendingSelectionURLs = movedURLs
             refresh()
-            restoreSelection(afterMovingTo: movedURLs)
             return true
         } catch {
+            if !movedURLs.isEmpty {
+                pendingSelectionURLs = movedURLs
+            }
+            refresh()
             runErrorAlert(error)
-            return false
+            return !movedURLs.isEmpty
         }
     }
 
@@ -485,10 +507,8 @@ final class ScreenshotLibrary: ObservableObject {
         do {
             try fileManager.moveItem(at: item.url, to: newURL)
             updateFavoritePath(from: item.url, to: newURL)
+            pendingSelectionURLs = [newURL]
             refresh()
-            if let renamedItem = items.first(where: { $0.url == newURL }) {
-                setSingleSelection(renamedItem)
-            }
         } catch {
             runErrorAlert(error)
         }
@@ -505,123 +525,60 @@ final class ScreenshotLibrary: ObservableObject {
         return items.filter { $0.folderName == nil }.count
     }
 
-    private func loadFavoritePaths() {
-        guard let data = try? Data(contentsOf: favoritesURL),
-              let paths = try? JSONDecoder().decode([String].self, from: data) else {
-            favoriteRelativePaths = []
-            return
-        }
-        favoriteRelativePaths = Set(paths.filter(Self.isSafeFavoriteRelativePath))
-    }
-
-    private func saveFavoritePaths() {
-        do {
-            try fileManager.createDirectory(
-                at: favoritesURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            let data = try JSONEncoder().encode(favoriteRelativePaths.sorted())
-            try data.write(to: favoritesURL, options: [.atomic])
-        } catch {
-            runErrorAlert(error)
-        }
-    }
-
     private func relativePath(for url: URL) -> String? {
         ScreenshotItem.relativePath(for: url, storageRootURL: storageURL)
     }
 
     private func updateFavoritePath(from oldURL: URL, to newURL: URL) {
         guard let oldPath = relativePath(for: oldURL),
-              favoriteRelativePaths.contains(oldPath),
               let newPath = relativePath(for: newURL) else {
             return
         }
 
-        favoriteRelativePaths.remove(oldPath)
-        favoriteRelativePaths.insert(newPath)
-        saveFavoritePaths()
+        do {
+            try favoritesStore.updatePath(from: oldPath, to: newPath)
+        } catch {
+            runErrorAlert(error)
+        }
     }
 
     private func removeFavoritePath(for url: URL) {
-        guard let relativePath = relativePath(for: url),
-              favoriteRelativePaths.remove(relativePath) != nil else {
-            return
+        guard let relativePath = relativePath(for: url) else { return }
+        do {
+            try favoritesStore.remove(relativePath)
+        } catch {
+            runErrorAlert(error)
         }
-        saveFavoritePaths()
     }
 
     private func updateFavoriteFolderPrefix(from oldName: String, to newName: String) {
-        let oldPrefix = oldName + "/"
-        let movedPaths = favoriteRelativePaths.filter { $0.hasPrefix(oldPrefix) }
-        guard !movedPaths.isEmpty else { return }
-
-        for path in movedPaths {
-            favoriteRelativePaths.remove(path)
-            favoriteRelativePaths.insert(newName + "/" + String(path.dropFirst(oldPrefix.count)))
+        do {
+            try favoritesStore.updateFolderPrefix(from: oldName, to: newName)
+        } catch {
+            runErrorAlert(error)
         }
-        saveFavoritePaths()
     }
 
     private func removeFavoriteFolderPrefix(_ folderName: String) {
-        let prefix = folderName + "/"
-        let beforeCount = favoriteRelativePaths.count
-        favoriteRelativePaths = favoriteRelativePaths.filter { !$0.hasPrefix(prefix) }
-        guard favoriteRelativePaths.count != beforeCount else { return }
-        saveFavoritePaths()
-    }
-
-    private func ensureStorageDirectory() {
-        let dir = storageURL
-        guard !fileManager.fileExists(atPath: dir.path) else { return }
-        try? fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
+        do {
+            try favoritesStore.removeFolderPrefix(folderName)
+        } catch {
+            runErrorAlert(error)
+        }
     }
 
     private func setSingleSelection(_ item: ScreenshotItem?) {
-        selectedItem = item
-        if let item {
-            selectedItemIDs = [item.id]
-            selectionAnchorID = item.id
-        } else {
-            selectedItemIDs = []
-            selectionAnchorID = nil
-        }
-    }
-
-    private func selectRange(through item: ScreenshotItem) {
-        guard let anchorID = selectionAnchorID,
-              let anchorIndex = filteredItems.firstIndex(where: { $0.id == anchorID }),
-              let itemIndex = filteredItems.firstIndex(where: { $0.id == item.id }) else {
-            setSingleSelection(item)
-            return
-        }
-
-        let bounds = min(anchorIndex, itemIndex)...max(anchorIndex, itemIndex)
-        selectedItemIDs = Set(filteredItems[bounds].map(\.id))
-    }
-
-    private func toggleSelection(of item: ScreenshotItem) {
-        if selectedItemIDs.contains(item.id), selectedItemIDs.count > 1 {
-            selectedItemIDs.remove(item.id)
-            if selectedItem == item {
-                selectedItem = filteredItems.first { selectedItemIDs.contains($0.id) }
-                selectionAnchorID = selectedItem?.id
-            }
-        } else {
-            selectedItemIDs.insert(item.id)
-            selectedItem = item
-            selectionAnchorID = item.id
-        }
+        selectionService.setSingle(item)
+        publishSelection()
     }
 
     private func selectedItemsInDisplayOrder() -> [ScreenshotItem] {
-        let selectedIDs = selectedItemIDs
-        let orderedItems = filteredItems.filter { selectedIDs.contains($0.id) }
-        if !orderedItems.isEmpty {
-            return orderedItems
-        }
+        selectionService.selectedItems(in: filteredItems)
+    }
 
-        return selectedItem.map { [$0] } ?? []
+    private func publishSelection() {
+        selectedItem = selectionService.selectedItem
+        selectedItemIDs = selectionService.selectedIDs
     }
 
     func setPresentationMode(_ mode: ShelfPresentationMode) {
@@ -639,68 +596,6 @@ final class ScreenshotLibrary: ObservableObject {
         }
     }
 
-    private func restoreSelection(afterMovingTo movedURLs: [URL]) {
-        let movedURLSet = Set(movedURLs)
-        let visibleMovedItems = filteredItems.filter { movedURLSet.contains($0.url) }
-        if !visibleMovedItems.isEmpty {
-            selectedItemIDs = Set(visibleMovedItems.map(\.id))
-            selectedItem = visibleMovedItems.first
-            selectionAnchorID = selectedItem?.id
-            return
-        }
-
-        setSingleSelection(filteredItems.first)
-    }
-
-    private static func migrateLegacySupportFolderIfNeeded(
-        fileManager: FileManager,
-        legacyURL: URL,
-        currentURL: URL
-    ) {
-        guard legacyURL.standardizedFileURL != currentURL.standardizedFileURL else { return }
-        guard fileManager.fileExists(atPath: legacyURL.path) else { return }
-        guard !fileManager.fileExists(atPath: currentURL.path) else { return }
-        try? fileManager.moveItem(at: legacyURL, to: currentURL)
-    }
-
-    @discardableResult
-    private func importScreenshotsFromDesktop() -> Bool {
-        guard let desktopFiles = try? fileManager.contentsOfDirectory(
-            at: desktopURL,
-            includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey, .isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        ) else { return false }
-
-        let screenshots = desktopFiles.filter(ScreenshotItem.looksLikeMacScreenshot)
-        var hasPending = false
-
-        for sourceURL in screenshots {
-            guard isStableFile(at: sourceURL) else {
-                hasPending = true
-                continue
-            }
-
-            let filename = sourceURL.lastPathComponent
-            let destinationURL = uniqueDestinationURL(for: filename, in: storageURL)
-
-            do {
-                try fileManager.moveItem(at: sourceURL, to: destinationURL)
-            } catch {
-                hasPending = true
-                continue
-            }
-        }
-
-        return hasPending
-    }
-
-    private func isStableFile(at url: URL) -> Bool {
-        guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey]),
-              let modDate = values.contentModificationDate else {
-            return false
-        }
-        return Date().timeIntervalSince(modDate) > 2.0
-    }
 
     nonisolated static func isSafeScreenshotFilename(_ filename: String) -> Bool {
         guard filename != ".", filename != ".." else { return false }
@@ -743,106 +638,87 @@ final class ScreenshotLibrary: ObservableObject {
         return "\(filename).\(originalExtension)"
     }
 
-    private func uniqueDestinationURL(for filename: String, in directory: URL) -> URL {
-        let baseName = (filename as NSString).deletingPathExtension
-        let ext = (filename as NSString).pathExtension
-        var candidate = directory.appendingPathComponent(filename)
-        var counter = 1
+    private func scheduleRefresh(retryCount: Int = 0, delayMilliseconds: Int = 2_000) {
+        refreshTask?.cancel()
+        refreshGeneration += 1
+        let generation = refreshGeneration
+        let favoritePaths = favoritesStore.relativePaths
 
-        while fileManager.fileExists(atPath: candidate.path) {
-            let newName = ext.isEmpty ? "\(baseName) (\(counter))" : "\(baseName) (\(counter)).\(ext)"
-            candidate = directory.appendingPathComponent(newName)
-            counter += 1
+        refreshTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            if delayMilliseconds > 0 {
+                try? await Task.sleep(for: .milliseconds(delayMilliseconds))
+            }
+            guard !Task.isCancelled else { return }
+
+            let pending = await importService.importScreenshots()
+            guard !Task.isCancelled else { return }
+            let snapshot = await storageService.scan(favoriteRelativePaths: favoritePaths)
+            guard !Task.isCancelled, generation == refreshGeneration else { return }
+
+            apply(snapshot)
+            if pending, retryCount < 10 {
+                scheduleRefresh(retryCount: retryCount + 1)
+            }
         }
-
-        return candidate
     }
 
-    private func scanStorage() {
-        let selectedURL = selectedItem?.url
-        let rootURLs = (try? fileManager.contentsOfDirectory(
-            at: storageURL,
-            includingPropertiesForKeys: [.creationDateKey, .fileSizeKey, .isRegularFileKey, .isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        )) ?? []
-
-        let subfolderURLs = rootURLs.filter { url in
-            (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-        }
-
-        let nestedURLs = subfolderURLs.flatMap { folderURL in
-            (try? fileManager.contentsOfDirectory(
-                at: folderURL,
-                includingPropertiesForKeys: [.creationDateKey, .fileSizeKey, .isRegularFileKey],
-                options: [.skipsHiddenFiles]
-            )) ?? []
-        }
-
-        let nextItems = (rootURLs + nestedURLs)
-            .filter(ScreenshotItem.isSupportedImageFile)
-            .compactMap {
-                ScreenshotItem.make(
-                    url: $0,
-                    storageRootURL: storageURL,
-                    favoriteRelativePaths: favoriteRelativePaths
-                )
-            }
-            .sorted { $0.createdAt > $1.createdAt }
-
-        items = nextItems
-        folders = subfolderURLs
-            .map { folderURL in
-                ScreenshotFolder(
-                    name: folderURL.lastPathComponent,
-                    url: folderURL,
-                    count: nextItems.filter { $0.folderName == folderURL.lastPathComponent }.count
-                )
-            }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    private func apply(_ snapshot: ScreenshotStorageSnapshot) {
+        let previousSelectedURL = selectedItem?.url
+        items = snapshot.items
+        folders = snapshot.folders
 
         if let selectedFolderName, !folders.contains(where: { $0.name == selectedFolderName }) {
             self.selectedFolderName = nil
         }
 
-        if items.isEmpty {
-            setSingleSelection(nil)
-            return
+        if let pendingSelectionURLs {
+            selectionService.restoreAfterMove(
+                to: pendingSelectionURLs,
+                visibleItems: filteredItems
+            )
+            self.pendingSelectionURLs = nil
+        } else {
+            selectionService.reconcile(
+                previousSelectedURL: previousSelectedURL,
+                allItems: items,
+                visibleItems: filteredItems
+            )
         }
-
-        let visibleIDs = Set(filteredItems.map(\.id))
-        selectedItemIDs.formIntersection(visibleIDs)
-
-        if let selectedURL,
-           let updatedSelection = filteredItems.first(where: { $0.url == selectedURL }) {
-            selectedItem = updatedSelection
-            if selectedItemIDs.isEmpty {
-                selectedItemIDs = [updatedSelection.id]
-                selectionAnchorID = updatedSelection.id
-            }
-            return
-        }
-
-        if let selectedItem, filteredItems.contains(selectedItem) {
-            if selectedItemIDs.isEmpty {
-                selectedItemIDs = [selectedItem.id]
-                selectionAnchorID = selectedItem.id
-            }
-            return
-        }
-
-        setSingleSelection(filteredItems.first)
+        publishSelection()
+        updateSubfolderMonitors()
     }
 
-    private func scheduleRefresh(retryCount: Int = 0) {
-        refreshTask?.cancel()
-        refreshTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(2000))
-            guard !Task.isCancelled else { return }
-            let pending = importScreenshotsFromDesktop()
-            scanStorage()
-            if pending, retryCount < 10 {
-                scheduleRefresh(retryCount: retryCount + 1)
+    private func updateSubfolderMonitors() {
+        let currentURLs = Set(folders.map { $0.url.standardizedFileURL })
+        let removedURLs = subfolderMonitors.keys.filter { !currentURLs.contains($0) }
+
+        for url in removedURLs {
+            subfolderMonitors[url]?.stop()
+            subfolderMonitors.removeValue(forKey: url)
+        }
+
+        for url in currentURLs where subfolderMonitors[url] == nil {
+            let monitor = DirectoryMonitor(directoryURL: url) { [weak self] in
+                Task { @MainActor in
+                    self?.scheduleRefresh()
+                }
             }
+            subfolderMonitors[url] = monitor
+            monitor.start()
+        }
+    }
+
+    func refreshAndWaitForTesting() async {
+        refreshTask?.cancel()
+        refreshGeneration += 1
+        let pending = await importService.importScreenshots()
+        let snapshot = await storageService.scan(
+            favoriteRelativePaths: favoritesStore.relativePaths
+        )
+        apply(snapshot)
+        if pending {
+            scheduleRefresh()
         }
     }
 

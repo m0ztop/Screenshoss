@@ -17,10 +17,6 @@ struct FloatingIconButton: View {
                 }
                 .buttonStyle(.glass)
                 .clipShape(Circle())
-                .overlay(
-                    Circle()
-                        .strokeBorder(.white.opacity(isHovered || isSelected ? 0.42 : 0.28), lineWidth: 1.0)
-                )
                 .shadow(color: .black.opacity(0.46), radius: 8, y: 4)
                 .scaleEffect(isHovered ? 1.05 : 1)
                 .animation(.easeOut(duration: 0.12), value: isHovered)
@@ -30,6 +26,13 @@ struct FloatingIconButton: View {
                 }
                 .buttonStyle(FloatingIconButtonStyle(isHovered: isHovered, isSelected: isSelected))
             }
+        }
+        .overlay {
+            Circle()
+                .strokeBorder(.white.opacity(isHovered ? 1.0 : 0.1), lineWidth: 1)
+                .blur(radius: isHovered ? 0 : 2)
+                .clipShape(Circle())
+                .allowsHitTesting(false)
         }
         .onHover { isHovered = $0 }
         .accessibilityLabel(accessibilityLabel)
@@ -58,10 +61,6 @@ struct FloatingIconButtonStyle: ButtonStyle {
                     .fill(.black.opacity(configuration.isPressed ? 0.54 : isHovered ? 0.48 : 0.42))
                 Circle()
                     .fill(.white.opacity(configuration.isPressed ? 0.06 : isSelected ? 0.16 : 0.1))
-            }
-            .overlay {
-                Circle()
-                    .strokeBorder(.white.opacity(isHovered || isSelected ? 0.4 : 0.3), lineWidth: 1.0)
             }
             .shadow(color: .black.opacity(0.45), radius: 8, y: 4)
             .scaleEffect(configuration.isPressed ? 0.94 : isHovered ? 1.05 : 1)

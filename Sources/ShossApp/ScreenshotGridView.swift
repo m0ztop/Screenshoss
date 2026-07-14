@@ -192,7 +192,8 @@ private struct ScreenshotCardView: View {
                     )
                     .transition(.scale(scale: 0.82).combined(with: .opacity))
                 }
-                .padding(6)
+                .padding(.vertical, 6)
+                .padding(.horizontal, -2)
             }
         }
         .frame(height: 122)

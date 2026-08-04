@@ -29,6 +29,11 @@ final class ScreenshotFavoritesStore {
         try save()
     }
 
+    func add(_ relativePath: String) throws {
+        guard relativePaths.insert(relativePath).inserted else { return }
+        try save()
+    }
+
     func updateFolderPrefix(from oldName: String, to newName: String) throws {
         let oldPrefix = oldName + "/"
         let movedPaths = relativePaths.filter { $0.hasPrefix(oldPrefix) }

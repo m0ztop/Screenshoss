@@ -106,13 +106,24 @@ struct ScreenshotStorageService: Sendable {
 
         let folders = subfolderURLs
             .map { folderURL in
-                ScreenshotFolder(
-                    name: folderURL.lastPathComponent,
-                    url: folderURL,
-                    count: items.lazy.filter { $0.folderName == folderURL.lastPathComponent }.count
+                let createdAt = (try? folderURL.resourceValues(forKeys: [.creationDateKey]))?.creationDate
+                    ?? .distantPast
+                return (
+                    folder: ScreenshotFolder(
+                        name: folderURL.lastPathComponent,
+                        url: folderURL,
+                        count: items.lazy.filter { $0.folderName == folderURL.lastPathComponent }.count
+                    ),
+                    createdAt: createdAt
                 )
             }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            .sorted { lhs, rhs in
+                if lhs.createdAt != rhs.createdAt {
+                    return lhs.createdAt > rhs.createdAt
+                }
+                return lhs.folder.name.localizedCaseInsensitiveCompare(rhs.folder.name) == .orderedAscending
+            }
+            .map { $0.folder }
 
         return ScreenshotStorageSnapshot(items: items, folders: folders)
     }

@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 struct ScreenshotGridView: View {
     @ObservedObject var library: ScreenshotLibrary
     var columnCount = 4
+    var topContentPadding: CGFloat = 0
 
     private let cardSpacing: CGFloat = 10
     private let innerHorizontalPadding: CGFloat = 4
@@ -69,6 +70,7 @@ struct ScreenshotGridView: View {
                         }
                     }
                     .padding(.horizontal, innerHorizontalPadding)
+                    .padding(.top, topContentPadding)
                 }
             }
         }
@@ -246,7 +248,9 @@ private final class ScreenshotMultiDragSourceNSView: NSView, NSDraggingSource {
     private var mouseDownEvent: NSEvent?
     private var didStartDrag = false
     private var didCollapseForExternalDrag = false
+    private var dragPanelFrame: NSRect?
     private let dragStartThreshold: CGFloat = 4
+    private let panelExitTolerance: CGFloat = 18
 
     override var isFlipped: Bool { true }
 
@@ -295,7 +299,6 @@ private final class ScreenshotMultiDragSourceNSView: NSView, NSDraggingSource {
 
     func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
         if context == .outsideApplication {
-            collapseForExternalDragIfNeeded()
             return .copy
         }
         return [.copy, .move]
@@ -307,22 +310,24 @@ private final class ScreenshotMultiDragSourceNSView: NSView, NSDraggingSource {
 
     func draggingSession(_ session: NSDraggingSession, willBeginAt screenPoint: NSPoint) {
         didCollapseForExternalDrag = false
+        dragPanelFrame = window?.frame
     }
 
     func draggingSession(_ session: NSDraggingSession, movedTo screenPoint: NSPoint) {
         guard !didCollapseForExternalDrag else { return }
-        guard !isPointInsidePanel(screenPoint, tolerance: 10) else { return }
+        guard !isPointInsidePanel(screenPoint, tolerance: panelExitTolerance) else { return }
 
         collapseForExternalDragIfNeeded()
     }
 
     func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
         let endedInsidePanel = isPointInsidePanel(screenPoint) && !didCollapseForExternalDrag
+        dragPanelFrame = nil
         onDragEnded?(endedInsidePanel)
     }
 
     private func isPointInsidePanel(_ screenPoint: NSPoint, tolerance: CGFloat = 0) -> Bool {
-        guard let frame = window?.frame else { return false }
+        guard let frame = dragPanelFrame ?? window?.frame else { return false }
         return frame.insetBy(dx: -tolerance, dy: -tolerance).contains(screenPoint)
     }
 

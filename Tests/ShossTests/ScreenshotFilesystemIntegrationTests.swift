@@ -98,6 +98,27 @@ final class ScreenshotFilesystemIntegrationTests: XCTestCase {
         )
     }
 
+    func testStorageScanOrdersNewestFoldersFirst() async throws {
+        let olderFolderURL = storageURL.appendingPathComponent("Canvas Style", isDirectory: true)
+        let newerFolderURL = storageURL.appendingPathComponent("Ticket", isDirectory: true)
+        try FileManager.default.createDirectory(at: olderFolderURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: newerFolderURL, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes(
+            [.creationDate: Date(timeIntervalSince1970: 100)],
+            ofItemAtPath: olderFolderURL.path
+        )
+        try FileManager.default.setAttributes(
+            [.creationDate: Date(timeIntervalSince1970: 200)],
+            ofItemAtPath: newerFolderURL.path
+        )
+
+        let snapshot = await ScreenshotStorageService(storageURL: storageURL).scan(
+            favoriteRelativePaths: []
+        )
+
+        XCTAssertEqual(snapshot.folders.map(\.name), ["Ticket", "Canvas Style"])
+    }
+
     func testFavoritesPersistAndFollowMovesAndFolderRenames() throws {
         let fileURL = temporaryURL.appendingPathComponent("favorites.json")
         let store = ScreenshotFavoritesStore(fileURL: fileURL)
@@ -111,6 +132,44 @@ final class ScreenshotFilesystemIntegrationTests: XCTestCase {
 
         try reloadedStore.removeFolderPrefix("Archive")
         XCTAssertTrue(ScreenshotFavoritesStore(fileURL: fileURL).relativePaths.isEmpty)
+    }
+
+    @MainActor
+    func testLibraryRestoresTrashedScreenshotAndFavoriteState() async throws {
+        let screenshotURL = storageURL.appendingPathComponent("favorite.png")
+        let favoritesURL = temporaryURL.appendingPathComponent("favorites.json")
+        let trashURL = temporaryURL.appendingPathComponent("Trash", isDirectory: true)
+        try Self.writeTestPNG(to: screenshotURL)
+        try JSONEncoder().encode(["favorite.png"]).write(to: favoritesURL, options: [.atomic])
+
+        let library = ScreenshotLibrary(
+            desktopURL: desktopURL,
+            storageURL: storageURL,
+            favoritesURL: favoritesURL,
+            trashService: ScreenshotTrashService(trashDirectoryURL: trashURL)
+        )
+        await library.refreshAndWaitForTesting()
+        let item = try XCTUnwrap(library.items.first)
+
+        library.delete(item)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: screenshotURL.path))
+        XCTAssertTrue(library.items.isEmpty)
+        XCTAssertEqual(library.trashUndoNotice?.itemCount, 1)
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: trashURL.appendingPathComponent("favorite.png").path
+        ))
+
+        library.undoLastTrash()
+        await library.refreshAndWaitForTesting()
+
+        XCTAssertNil(library.trashUndoNotice)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: screenshotURL.path))
+        XCTAssertEqual(
+            library.items.first?.url.resolvingSymlinksInPath(),
+            screenshotURL.resolvingSymlinksInPath()
+        )
+        XCTAssertTrue(library.items.first?.isFavorite == true)
     }
 
     @MainActor

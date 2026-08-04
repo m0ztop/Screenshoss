@@ -16,6 +16,22 @@ enum ShelfPresentationMode: String, CaseIterable, Hashable {
     }
 }
 
+struct TrashUndoNotice: Equatable {
+    let id = UUID()
+    let itemCount: Int
+
+    var message: String {
+        itemCount == 1
+            ? "Screenshot moved to Trash"
+            : "\(itemCount) screenshots moved to Trash"
+    }
+}
+
+private struct PendingTrashedScreenshot {
+    let location: TrashedScreenshotLocation
+    let wasFavorite: Bool
+}
+
 @MainActor
 final class ScreenshotLibrary: ObservableObject {
     @Published private(set) var items: [ScreenshotItem] = []
@@ -26,6 +42,7 @@ final class ScreenshotLibrary: ObservableObject {
     @Published var showingFavoritesOnly = false
     @Published var draggedItemURLs: Set<URL> = []
     @Published var searchText = ""
+    @Published private(set) var trashUndoNotice: TrashUndoNotice?
     @Published var presentationMode: ShelfPresentationMode {
         didSet {
             UserDefaults.standard.set(presentationMode.rawValue, forKey: Self.presentationModeDefaultsKey)
@@ -50,12 +67,15 @@ final class ScreenshotLibrary: ObservableObject {
     private let storageService: ScreenshotStorageService
     private let importService: ScreenshotImportService
     private let favoritesStore: ScreenshotFavoritesStore
+    private let trashService: ScreenshotTrashService
     private var selectionService = ScreenshotSelectionService()
     private var desktopMonitor: DirectoryMonitor?
     private var storageMonitor: DirectoryMonitor?
     private var subfolderMonitors: [URL: DirectoryMonitor] = [:]
     private var refreshTask: Task<Void, Never>?
     private var refreshGeneration = 0
+    private var pendingTrashedScreenshots: [PendingTrashedScreenshot] = []
+    private var trashUndoDismissTask: Task<Void, Never>?
     private var isRunning = false
     private var pendingSelectionURLs: [URL]?
     private static let presentationModeDefaultsKey = "screenshoss.presentationMode"
@@ -63,7 +83,8 @@ final class ScreenshotLibrary: ObservableObject {
     init(
         desktopURL: URL = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask)[0],
         storageURL customStorageURL: URL? = nil,
-        favoritesURL customFavoritesURL: URL? = nil
+        favoritesURL customFavoritesURL: URL? = nil,
+        trashService customTrashService: ScreenshotTrashService? = nil
     ) {
         self.desktopURL = desktopURL
         if let storedMode = UserDefaults.standard.string(forKey: Self.presentationModeDefaultsKey),
@@ -98,6 +119,7 @@ final class ScreenshotLibrary: ObservableObject {
             storageURL: resolvedStorageURL
         )
         favoritesStore = ScreenshotFavoritesStore(fileURL: resolvedFavoritesURL)
+        trashService = customTrashService ?? ScreenshotTrashService()
     }
 
     var filteredItems: [ScreenshotItem] {
@@ -256,25 +278,96 @@ final class ScreenshotLibrary: ObservableObject {
         guard !uniqueItems.isEmpty else { return false }
 
         var deletedIDs: Set<URL> = []
+        var trashedScreenshots: [PendingTrashedScreenshot] = []
         do {
             for item in uniqueItems {
-                try fileManager.trashItem(at: item.url, resultingItemURL: nil)
+                let location = try trashService.moveToTrash(item.url)
+                trashedScreenshots.append(
+                    PendingTrashedScreenshot(location: location, wasFavorite: item.isFavorite)
+                )
                 removeFavoritePath(for: item.url)
                 deletedIDs.insert(item.id)
             }
 
-            selectionService.remove(ids: deletedIDs)
-            publishSelection()
+            applyOptimisticDeletion(ids: deletedIDs)
+            presentTrashUndo(for: trashedScreenshots)
             refresh()
             return true
         } catch {
             if !deletedIDs.isEmpty {
-                selectionService.remove(ids: deletedIDs)
-                publishSelection()
+                applyOptimisticDeletion(ids: deletedIDs)
+                presentTrashUndo(for: trashedScreenshots)
                 refresh()
             }
             runErrorAlert(error)
             return !deletedIDs.isEmpty
+        }
+    }
+
+    private func applyOptimisticDeletion(ids deletedIDs: Set<URL>) {
+        let previousSelectedURL = selectedItem?.url
+        items.removeAll { deletedIDs.contains($0.id) }
+        folders = folders.map { folder in
+            ScreenshotFolder(
+                name: folder.name,
+                url: folder.url,
+                count: items.lazy.filter { $0.folderName == folder.name }.count
+            )
+        }
+
+        selectionService.remove(ids: deletedIDs)
+        selectionService.reconcile(
+            previousSelectedURL: previousSelectedURL.flatMap {
+                deletedIDs.contains($0) ? nil : $0
+            },
+            allItems: items,
+            visibleItems: filteredItems
+        )
+        publishSelection()
+    }
+
+    func undoLastTrash() {
+        guard !pendingTrashedScreenshots.isEmpty else { return }
+
+        trashUndoDismissTask?.cancel()
+        let screenshotsToRestore = pendingTrashedScreenshots
+        pendingTrashedScreenshots = []
+        trashUndoNotice = nil
+
+        var restoredURLs: [URL] = []
+        var firstError: Error?
+        for screenshot in screenshotsToRestore {
+            do {
+                let restoredURL = try trashService.restore(screenshot.location)
+                restoredURLs.append(restoredURL)
+                if screenshot.wasFavorite, let restoredPath = relativePath(for: restoredURL) {
+                    try favoritesStore.add(restoredPath)
+                }
+            } catch {
+                firstError = firstError ?? error
+            }
+        }
+
+        if !restoredURLs.isEmpty {
+            pendingSelectionURLs = restoredURLs
+            refresh()
+        }
+        if let firstError {
+            runErrorAlert(firstError)
+        }
+    }
+
+    private func presentTrashUndo(for screenshots: [PendingTrashedScreenshot]) {
+        guard !screenshots.isEmpty else { return }
+
+        trashUndoDismissTask?.cancel()
+        pendingTrashedScreenshots.append(contentsOf: screenshots)
+        trashUndoNotice = TrashUndoNotice(itemCount: pendingTrashedScreenshots.count)
+        trashUndoDismissTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(6))
+            guard !Task.isCancelled else { return }
+            self?.pendingTrashedScreenshots = []
+            self?.trashUndoNotice = nil
         }
     }
 

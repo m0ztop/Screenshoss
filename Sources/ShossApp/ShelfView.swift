@@ -45,6 +45,69 @@ struct ShelfView: View {
         }
     }
 }
+
+private struct TrashUndoOverlay: View {
+    @ObservedObject var library: ScreenshotLibrary
+
+    var body: some View {
+        if let notice = library.trashUndoNotice {
+            TrashUndoBar(notice: notice) {
+                library.undoLastTrash()
+            }
+            .padding(.bottom, 14)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .zIndex(200)
+        }
+    }
+}
+
+private struct TrashUndoBar: View {
+    let notice: TrashUndoNotice
+    let undoAction: () -> Void
+    @State private var isUndoHovered = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "trash")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.white.opacity(0.72))
+
+            Text(notice.message)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.white.opacity(0.92))
+                .lineLimit(1)
+
+            Button("Undo", action: undoAction)
+                .buttonStyle(.plain)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 9)
+                .frame(height: 24)
+                .background(
+                    .white.opacity(isUndoHovered ? 0.2 : 0.12),
+                    in: Capsule()
+                )
+                .onHover { isUndoHovered = $0 }
+                .accessibilityLabel("Undo moving screenshots to Trash")
+        }
+        .padding(.leading, 12)
+        .padding(.trailing, 6)
+        .frame(height: 36)
+        .background {
+            ZStack {
+                VisualEffectBackground(material: .hudWindow)
+                    .clipShape(Capsule())
+                Capsule()
+                    .fill(.black.opacity(0.78))
+            }
+        }
+        .overlay {
+            Capsule()
+                .strokeBorder(.white.opacity(0.16), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.5), radius: 12, y: 6)
+    }
+}
 private struct TopNotchShelfView: View {
     @ObservedObject var library: ScreenshotLibrary
 
@@ -233,6 +296,10 @@ private struct SideExpandedShelfView: View {
             .padding(.horizontal, 14)
             .background { SideExpandedShelfBackground() }
             .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .overlay(alignment: .bottom) {
+                TrashUndoOverlay(library: library)
+            }
+            .animation(.spring(response: 0.28, dampingFraction: 0.9), value: library.trashUndoNotice)
     }
 }
 
@@ -270,7 +337,7 @@ private struct ShelfContentView: View {
             HeaderView(library: library)
                 .zIndex(10)
             HStack(alignment: .top, spacing: 14) {
-                ScreenshotGridView(library: library)
+                ScreenshotGridView(library: library, topContentPadding: 6)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .padding(.bottom, -14)
 
@@ -295,7 +362,7 @@ private struct SideShelfContentView: View {
             SideHeaderView(library: library)
                 .zIndex(10)
 
-            ScreenshotGridView(library: library, columnCount: 2)
+            ScreenshotGridView(library: library, columnCount: 2, topContentPadding: 6)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .foregroundStyle(.white)
@@ -310,6 +377,10 @@ private struct ExpandedShelfView: View {
         ShelfContentView(library: library)
         .padding(14)
         .background { ExpandedShelfBackground() }
+        .overlay(alignment: .bottom) {
+            TrashUndoOverlay(library: library)
+        }
+        .animation(.spring(response: 0.28, dampingFraction: 0.9), value: library.trashUndoNotice)
     }
 }
 

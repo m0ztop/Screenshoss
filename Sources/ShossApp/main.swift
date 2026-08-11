@@ -83,7 +83,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
         if let button = statusItem?.button {
-            button.image = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: "Screenshoss")
+            button.image = ScreenshossIcon.image
+                ?? NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: "Screenshoss")
+            button.imagePosition = .imageOnly
             button.target = self
             button.action = #selector(statusItemClicked)
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])

@@ -166,16 +166,16 @@ private struct FolderFilterStripView: View {
     var showsAddButton = true
     @State private var bumpedFolderName: String?
     @State private var folderContentWidth: CGFloat = 1
-    @State private var folderContentMinX: CGFloat = 0
+    @State private var folderScrollOffset: CGFloat = 0
+    @State private var folderMaximumScrollOffset: CGFloat = 0
 
     private let folderFadeWidth: CGFloat = 64
-    private let scrollCoordinateSpace = "FolderFilterScroll"
 
     var body: some View {
         let scrollWidth = min(maxFolderScrollWidth, max(1, folderContentWidth))
         let isOverflowing = folderContentWidth > maxFolderScrollWidth
-        let shouldShowLeadingFade = isOverflowing && folderContentMinX < -2
-        let shouldShowTrailingFade = isOverflowing && folderContentMinX + folderContentWidth > scrollWidth + 2
+        let shouldShowLeadingFade = isOverflowing && folderScrollOffset > 2
+        let shouldShowTrailingFade = isOverflowing && folderScrollOffset < folderMaximumScrollOffset - 2
 
         HStack(spacing: 8) {
             ScrollView(.horizontal, showsIndicators: false) {
@@ -211,51 +211,32 @@ private struct FolderFilterStripView: View {
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
                 .background {
-                    GeometryReader { proxy in
-                        Color.clear
-                            .preference(key: FolderContentWidthKey.self, value: proxy.size.width)
-                            .preference(
-                                key: FolderContentMinXKey.self,
-                                value: proxy.frame(in: .named(scrollCoordinateSpace)).minX
-                            )
+                    ZStack {
+                        GeometryReader { proxy in
+                            Color.clear
+                                .preference(key: FolderContentWidthKey.self, value: proxy.size.width)
+                        }
+
+                        FolderScrollPositionReader { offset, maximumOffset in
+                            folderScrollOffset = offset
+                            folderMaximumScrollOffset = maximumOffset
+                        }
                     }
                 }
             }
-            .coordinateSpace(name: scrollCoordinateSpace)
             .frame(width: scrollWidth, alignment: .leading)
             .mask(
-                HStack(spacing: 0) {
-                    if shouldShowLeadingFade {
-                        LinearGradient(
-                            stops: [
-                                .init(color: .clear, location: 0),
-                                .init(color: .black.opacity(0.34), location: 0.26),
-                                .init(color: .black.opacity(0.82), location: 0.58),
-                                .init(color: .black, location: 1)
-                            ],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                        .frame(width: folderFadeWidth)
-                    }
-                    Rectangle().fill(.black)
-                    if shouldShowTrailingFade {
-                        LinearGradient(
-                            stops: [
-                                .init(color: .black, location: 0),
-                                .init(color: .black.opacity(0.82), location: 0.42),
-                                .init(color: .black.opacity(0.34), location: 0.74),
-                                .init(color: .clear, location: 1)
-                            ],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                        .frame(width: folderFadeWidth)
-                    }
-                }
+                LinearGradient(
+                    stops: folderMaskStops(
+                        showsLeadingFade: shouldShowLeadingFade,
+                        showsTrailingFade: shouldShowTrailingFade,
+                        width: scrollWidth
+                    ),
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
             )
             .onPreferenceChange(FolderContentWidthKey.self) { folderContentWidth = $0 }
-            .onPreferenceChange(FolderContentMinXKey.self) { folderContentMinX = $0 }
 
             if showsAddButton {
                 FolderAddButton(library: library)
@@ -267,6 +248,39 @@ private struct FolderFilterStripView: View {
 
     private var recentBumpID: String {
         "__recent__"
+    }
+
+    private func folderMaskStops(
+        showsLeadingFade: Bool,
+        showsTrailingFade: Bool,
+        width: CGFloat
+    ) -> [Gradient.Stop] {
+        let fadeFraction = min(0.45, folderFadeWidth / max(width, 1))
+        var stops: [Gradient.Stop] = []
+
+        if showsLeadingFade {
+            stops.append(contentsOf: [
+                .init(color: .clear, location: 0),
+                .init(color: .black.opacity(0.34), location: fadeFraction * 0.26),
+                .init(color: .black.opacity(0.82), location: fadeFraction * 0.58),
+                .init(color: .black, location: fadeFraction)
+            ])
+        } else {
+            stops.append(.init(color: .black, location: 0))
+        }
+
+        if showsTrailingFade {
+            stops.append(contentsOf: [
+                .init(color: .black, location: 1 - fadeFraction),
+                .init(color: .black.opacity(0.82), location: 1 - fadeFraction * 0.58),
+                .init(color: .black.opacity(0.34), location: 1 - fadeFraction * 0.26),
+                .init(color: .clear, location: 1)
+            ])
+        } else {
+            stops.append(.init(color: .black, location: 1))
+        }
+
+        return stops
     }
 
     private func handleDrop(folderName: String?) -> Bool {
@@ -296,11 +310,80 @@ private struct FolderContentWidthKey: PreferenceKey {
     }
 }
 
-private struct FolderContentMinXKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
+private struct FolderScrollPositionReader: NSViewRepresentable {
+    let onChange: (CGFloat, CGFloat) -> Void
 
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
+    func makeNSView(context: Context) -> FolderScrollObserverView {
+        let view = FolderScrollObserverView()
+        view.onChange = onChange
+        return view
+    }
+
+    func updateNSView(_ view: FolderScrollObserverView, context: Context) {
+        view.onChange = onChange
+        view.attachAndPublish()
+    }
+
+    static func dismantleNSView(_ view: FolderScrollObserverView, coordinator: Void) {
+        view.detach()
+    }
+}
+
+private final class FolderScrollObserverView: NSView {
+    var onChange: ((CGFloat, CGFloat) -> Void)?
+    private weak var observedScrollView: NSScrollView?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        attachAndPublish()
+    }
+
+    func attachAndPublish() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            guard let scrollView = enclosingScrollView else { return }
+
+            if observedScrollView !== scrollView {
+                detach()
+                observedScrollView = scrollView
+                scrollView.contentView.postsBoundsChangedNotifications = true
+                scrollView.documentView?.postsFrameChangedNotifications = true
+                NotificationCenter.default.addObserver(
+                    self,
+                    selector: #selector(scrollMetricsDidChange),
+                    name: NSView.boundsDidChangeNotification,
+                    object: scrollView.contentView
+                )
+                if let documentView = scrollView.documentView {
+                    NotificationCenter.default.addObserver(
+                        self,
+                        selector: #selector(scrollMetricsDidChange),
+                        name: NSView.frameDidChangeNotification,
+                        object: documentView
+                    )
+                }
+            }
+
+            publishScrollMetrics()
+        }
+    }
+
+    func detach() {
+        NotificationCenter.default.removeObserver(self)
+        observedScrollView = nil
+    }
+
+    @objc private func scrollMetricsDidChange() {
+        publishScrollMetrics()
+    }
+
+    private func publishScrollMetrics() {
+        guard let scrollView = observedScrollView else { return }
+        let visibleRect = scrollView.contentView.bounds
+        let documentWidth = scrollView.documentView?.frame.width ?? visibleRect.width
+        let maximumOffset = max(0, documentWidth - visibleRect.width)
+        let offset = min(max(0, visibleRect.minX), maximumOffset)
+        onChange?(offset, maximumOffset)
     }
 }
 

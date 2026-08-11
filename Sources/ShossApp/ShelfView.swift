@@ -204,9 +204,7 @@ private struct CollapsedNotchView: View {
         ZStack {
             CollapsedNotchSilhouette()
 
-            Image(systemName: "camera.viewfinder")
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(.white)
+            ScreenshossIconView()
                 .frame(width: 132, height: 34)
                 .opacity(iconVisible ? 1 : 0)
                 .scaleEffect(iconVisible ? 1 : 0.5)
@@ -267,9 +265,7 @@ private struct CollapsedSideNotchView: View {
                 .rotationEffect(.degrees(side == .left ? -90 : 90))
                 .frame(width: 34, height: 160)
 
-            Image(systemName: "camera.viewfinder")
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(.white)
+            ScreenshossIconView()
                 .opacity(iconVisible ? 1 : 0)
                 .scaleEffect(iconVisible ? 1 : 0.5)
         }

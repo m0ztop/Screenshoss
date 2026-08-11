@@ -52,6 +52,10 @@ mkdir -p "$ICONSET_DIR"
 echo "=== Copying startup sound ==="
 cp Assets/app-start.MP3 "$APP_DIR/Contents/Resources/app-start.mp3"
 
+echo "=== Copying status bar icons ==="
+cp Assets/statusbar.png "$APP_DIR/Contents/Resources/statusbar.png"
+cp Assets/statusbar@2x.png "$APP_DIR/Contents/Resources/statusbar@2x.png"
+
 echo "=== Creating universal app executable ==="
 lipo -create \
     "$ARM64_BUILD_DIR/Shoss" \

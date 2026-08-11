@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import Combine
 import Foundation
 import ServiceManagement
 
@@ -10,6 +11,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusMenu: NSMenu?
     private var placementItems: [ShelfPresentationMode: NSMenuItem] = [:]
     private var startupSoundPlayer: AVAudioPlayer?
+    private var screenshotDeleteSoundPlayer: AVAudioPlayer?
+    private var screenshotDeleteCancellable: AnyCancellable?
     private let showNotificationName = Notification.Name("com.mert.screenshoss.show")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -20,6 +23,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         playStartupSound()
 
         let library = ScreenshotLibrary()
+        prepareScreenshotDeleteSound()
+        observeScreenshotDeletions(library)
         let panelController = ShelfPanelController(library: library)
         self.panelController = panelController
         panelController.show()
@@ -76,6 +81,39 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let localURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
             .appendingPathComponent("Assets/app-start.MP3")
+        return FileManager.default.fileExists(atPath: localURL.path) ? localURL : nil
+    }
+
+    private func prepareScreenshotDeleteSound() {
+        guard let url = screenshotDeleteSoundURL() else { return }
+        guard let player = try? AVAudioPlayer(contentsOf: url) else { return }
+        player.volume = 0.52
+        player.prepareToPlay()
+        screenshotDeleteSoundPlayer = player
+    }
+
+    private func observeScreenshotDeletions(_ library: ScreenshotLibrary) {
+        screenshotDeleteCancellable = library.$screenshotDeleteGeneration
+            .dropFirst()
+            .filter { $0 > 0 }
+            .sink { [weak self] _ in
+                self?.playScreenshotDeleteSound()
+            }
+    }
+
+    private func playScreenshotDeleteSound() {
+        guard let player = screenshotDeleteSoundPlayer else { return }
+        player.currentTime = 0
+        player.play()
+    }
+
+    private func screenshotDeleteSoundURL() -> URL? {
+        if let bundledURL = Bundle.main.url(forResource: "screenshot-delete", withExtension: "wav") {
+            return bundledURL
+        }
+
+        let localURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent("Assets/screenshot-delete.wav")
         return FileManager.default.fileExists(atPath: localURL.path) ? localURL : nil
     }
 

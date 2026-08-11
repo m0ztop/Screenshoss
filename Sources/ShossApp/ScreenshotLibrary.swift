@@ -43,6 +43,8 @@ final class ScreenshotLibrary: ObservableObject {
     @Published var draggedItemURLs: Set<URL> = []
     @Published var searchText = ""
     @Published private(set) var trashUndoNotice: TrashUndoNotice?
+    @Published private(set) var screenshotImportGeneration = 0
+    @Published private(set) var screenshotDeleteGeneration = 0
     @Published var presentationMode: ShelfPresentationMode {
         didSet {
             UserDefaults.standard.set(presentationMode.rawValue, forKey: Self.presentationModeDefaultsKey)
@@ -290,12 +292,14 @@ final class ScreenshotLibrary: ObservableObject {
             }
 
             applyOptimisticDeletion(ids: deletedIDs)
+            publishScreenshotDeletionIfNeeded(deletedIDs)
             presentTrashUndo(for: trashedScreenshots)
             refresh()
             return true
         } catch {
             if !deletedIDs.isEmpty {
                 applyOptimisticDeletion(ids: deletedIDs)
+                publishScreenshotDeletionIfNeeded(deletedIDs)
                 presentTrashUndo(for: trashedScreenshots)
                 refresh()
             }
@@ -324,6 +328,11 @@ final class ScreenshotLibrary: ObservableObject {
             visibleItems: filteredItems
         )
         publishSelection()
+    }
+
+    private func publishScreenshotDeletionIfNeeded(_ deletedIDs: Set<URL>) {
+        guard !deletedIDs.isEmpty else { return }
+        screenshotDeleteGeneration += 1
     }
 
     func undoLastTrash() {
@@ -744,13 +753,14 @@ final class ScreenshotLibrary: ObservableObject {
             }
             guard !Task.isCancelled else { return }
 
-            let pending = await importService.importScreenshots()
+            let importResult = await importService.importScreenshots()
+            publishScreenshotImportIfNeeded(importResult)
             guard !Task.isCancelled else { return }
             let snapshot = await storageService.scan(favoriteRelativePaths: favoritePaths)
             guard !Task.isCancelled, generation == refreshGeneration else { return }
 
             apply(snapshot)
-            if pending, retryCount < 10 {
+            if importResult.hasPendingFiles, retryCount < 10 {
                 scheduleRefresh(retryCount: retryCount + 1)
             }
         }
@@ -805,14 +815,20 @@ final class ScreenshotLibrary: ObservableObject {
     func refreshAndWaitForTesting() async {
         refreshTask?.cancel()
         refreshGeneration += 1
-        let pending = await importService.importScreenshots()
+        let importResult = await importService.importScreenshots()
+        publishScreenshotImportIfNeeded(importResult)
         let snapshot = await storageService.scan(
             favoriteRelativePaths: favoritesStore.relativePaths
         )
         apply(snapshot)
-        if pending {
+        if importResult.hasPendingFiles {
             scheduleRefresh()
         }
+    }
+
+    private func publishScreenshotImportIfNeeded(_ result: ScreenshotImportResult) {
+        guard result.importedCount > 0 else { return }
+        screenshotImportGeneration += 1
     }
 
     private func showFolderAlert(message: String, info: String?) {

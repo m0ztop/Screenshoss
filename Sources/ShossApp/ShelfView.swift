@@ -123,7 +123,7 @@ private struct TopNotchShelfView: View {
                         )
                     )
             } else {
-                CollapsedNotchView()
+                CollapsedNotchView(importGeneration: library.screenshotImportGeneration)
                     .zIndex(1)
                     .transition(
                         .asymmetric(
@@ -153,7 +153,10 @@ private struct SideNotchShelfView: View {
                         )
                     )
             } else {
-                CollapsedSideNotchView(side: side)
+                CollapsedSideNotchView(
+                    side: side,
+                    importGeneration: library.screenshotImportGeneration
+                )
                     .zIndex(1)
                     .transition(
                         .asymmetric(
@@ -197,29 +200,16 @@ private struct NotchCornerJoinShape: Shape {
 }
 
 private struct CollapsedNotchView: View {
-    private static var hasAnimatedIconEntrance = false
-    @State private var iconVisible = false
+    let importGeneration: Int
 
     var body: some View {
         ZStack {
             CollapsedNotchSilhouette()
 
-            ScreenshossIconView()
+            NotchActivityDot(importGeneration: importGeneration)
                 .frame(width: 132, height: 34)
-                .opacity(iconVisible ? 1 : 0)
-                .scaleEffect(iconVisible ? 1 : 0.5)
         }
         .frame(width: 160, height: 34)
-        .onAppear {
-            if !Self.hasAnimatedIconEntrance {
-                Self.hasAnimatedIconEntrance = true
-                withAnimation(.easeOut(duration: 0.3).delay(0.22)) {
-                    iconVisible = true
-                }
-            } else {
-                iconVisible = true
-            }
-        }
     }
 }
 
@@ -255,9 +245,8 @@ private struct CollapsedNotchSilhouette: View {
 }
 
 private struct CollapsedSideNotchView: View {
-    private static var hasAnimatedIconEntrance = false
     let side: ShelfPresentationMode
-    @State private var iconVisible = false
+    let importGeneration: Int
 
     var body: some View {
         ZStack {
@@ -265,19 +254,64 @@ private struct CollapsedSideNotchView: View {
                 .rotationEffect(.degrees(side == .left ? -90 : 90))
                 .frame(width: 34, height: 160)
 
-            ScreenshossIconView()
-                .opacity(iconVisible ? 1 : 0)
-                .scaleEffect(iconVisible ? 1 : 0.5)
+            NotchActivityDot(importGeneration: importGeneration)
         }
         .frame(width: 34, height: 160)
-        .onAppear {
-            if !Self.hasAnimatedIconEntrance {
-                Self.hasAnimatedIconEntrance = true
-                withAnimation(.easeOut(duration: 0.3).delay(0.16)) {
-                    iconVisible = true
-                }
-            } else {
-                iconVisible = true
+    }
+}
+
+private struct NotchActivityDot: View {
+    let importGeneration: Int
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var scale: CGFloat = 1
+    @State private var color = Color.white
+    @State private var glowOpacity = 0.0
+    @State private var pulseTask: Task<Void, Never>?
+
+    private let pulsePurple = Color(red: 0.68, green: 0.43, blue: 1.0)
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(pulsePurple.opacity(glowOpacity))
+                .frame(width: 16, height: 16)
+                .blur(radius: 4)
+
+            Circle()
+                .fill(color)
+                .frame(width: 6, height: 6)
+                .scaleEffect(scale)
+        }
+        .frame(width: 18, height: 18)
+        .accessibilityLabel("Screenshoss")
+        .onChange(of: importGeneration) { _ in
+            pulse()
+        }
+        .onDisappear {
+            pulseTask?.cancel()
+        }
+    }
+
+    private func pulse() {
+        pulseTask?.cancel()
+        pulseTask = Task { @MainActor in
+            withAnimation(
+                reduceMotion
+                    ? .easeInOut(duration: 0.16)
+                    : .spring(response: 0.25, dampingFraction: 0.58)
+            ) {
+                color = pulsePurple
+                scale = reduceMotion ? 1 : 2.3
+                glowOpacity = reduceMotion ? 0 : 0.48
+            }
+
+            try? await Task.sleep(for: .milliseconds(reduceMotion ? 180 : 230))
+            guard !Task.isCancelled else { return }
+
+            withAnimation(.spring(response: 0.38, dampingFraction: 0.78)) {
+                color = .white
+                scale = 1
+                glowOpacity = 0
             }
         }
     }

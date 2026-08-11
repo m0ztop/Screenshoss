@@ -52,6 +52,9 @@ mkdir -p "$ICONSET_DIR"
 echo "=== Copying startup sound ==="
 cp Assets/app-start.MP3 "$APP_DIR/Contents/Resources/app-start.mp3"
 
+echo "=== Copying screenshot delete sound ==="
+cp Assets/screenshot-delete.wav "$APP_DIR/Contents/Resources/screenshot-delete.wav"
+
 echo "=== Copying status bar icons ==="
 cp Assets/statusbar.png "$APP_DIR/Contents/Resources/statusbar.png"
 cp Assets/statusbar@2x.png "$APP_DIR/Contents/Resources/statusbar@2x.png"

@@ -166,6 +166,7 @@ private struct ScreenshotCardView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(.white.opacity(0.07))
             }
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay {
                 ScreenshotMultiDragSourceView(
                     dragURLs: dragURLs,
@@ -179,7 +180,13 @@ private struct ScreenshotCardView: View {
             if isHovered || item.isFavorite {
                 HStack {
                     if isHovered {
-                        FloatingIconButton(systemName: "trash", tooltip: "Delete", accessibilityLabel: "Delete screenshot", action: onDelete)
+                        FloatingIconButton(
+                            systemName: "trash",
+                            tooltip: "Delete",
+                            accessibilityLabel: "Delete screenshot",
+                            tooltipXOffset: 28,
+                            action: onDelete
+                        )
                             .transition(.scale(scale: 0.82).combined(with: .opacity))
                     }
 
@@ -190,6 +197,7 @@ private struct ScreenshotCardView: View {
                         isSelected: item.isFavorite,
                         tooltip: item.isFavorite ? "Remove" : "Add Fav",
                         accessibilityLabel: item.isFavorite ? "Remove favorite" : "Favorite screenshot",
+                        tooltipXOffset: -28,
                         action: onToggleFavorite
                     )
                     .transition(.scale(scale: 0.82).combined(with: .opacity))
@@ -199,7 +207,6 @@ private struct ScreenshotCardView: View {
             }
         }
         .frame(height: 122)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .stroke(isSelected ? .white.opacity(0.85) : .white.opacity(0.1), lineWidth: isSelected ? 2 : 1)

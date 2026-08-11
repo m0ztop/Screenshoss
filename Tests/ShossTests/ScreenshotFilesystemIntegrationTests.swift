@@ -34,9 +34,10 @@ final class ScreenshotFilesystemIntegrationTests: XCTestCase {
             stableFileAge: -1
         )
 
-        let hasPendingFiles = await service.importScreenshots()
+        let result = await service.importScreenshots()
 
-        XCTAssertFalse(hasPendingFiles)
+        XCTAssertFalse(result.hasPendingFiles)
+        XCTAssertEqual(result.importedCount, 1)
         XCTAssertFalse(FileManager.default.fileExists(atPath: screenshotURL.path))
         XCTAssertTrue(FileManager.default.fileExists(
             atPath: storageURL.appendingPathComponent(screenshotURL.lastPathComponent).path
@@ -54,8 +55,9 @@ final class ScreenshotFilesystemIntegrationTests: XCTestCase {
             stableFileAge: 60
         )
 
-        let hasPendingFiles = await service.importScreenshots()
-        XCTAssertTrue(hasPendingFiles)
+        let result = await service.importScreenshots()
+        XCTAssertTrue(result.hasPendingFiles)
+        XCTAssertEqual(result.importedCount, 0)
         XCTAssertTrue(FileManager.default.fileExists(atPath: screenshotURL.path))
     }
 
@@ -155,6 +157,7 @@ final class ScreenshotFilesystemIntegrationTests: XCTestCase {
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: screenshotURL.path))
         XCTAssertTrue(library.items.isEmpty)
+        XCTAssertEqual(library.screenshotDeleteGeneration, 1)
         XCTAssertEqual(library.trashUndoNotice?.itemCount, 1)
         XCTAssertTrue(FileManager.default.fileExists(
             atPath: trashURL.appendingPathComponent("favorite.png").path
@@ -191,6 +194,7 @@ final class ScreenshotFilesystemIntegrationTests: XCTestCase {
         XCTAssertEqual(library.items.map(\.name), [screenshotURL.lastPathComponent])
         XCTAssertEqual(library.selectedItem?.name, screenshotURL.lastPathComponent)
         XCTAssertEqual(library.selectedItemIDs.count, 1)
+        XCTAssertEqual(library.screenshotImportGeneration, 1)
     }
 
     private static func writeTestPNG(to url: URL) throws {

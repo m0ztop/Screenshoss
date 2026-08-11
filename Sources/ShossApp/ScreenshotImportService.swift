@@ -1,11 +1,16 @@
 import Foundation
 
+struct ScreenshotImportResult: Equatable, Sendable {
+    let hasPendingFiles: Bool
+    let importedCount: Int
+}
+
 struct ScreenshotImportService: Sendable {
     let desktopURL: URL
     let storageURL: URL
     var stableFileAge: TimeInterval = 2
 
-    func importScreenshots() async -> Bool {
+    func importScreenshots() async -> ScreenshotImportResult {
         let desktopURL = desktopURL
         let storageURL = storageURL
         let stableFileAge = stableFileAge
@@ -21,11 +26,12 @@ struct ScreenshotImportService: Sendable {
                 ],
                 options: [.skipsHiddenFiles]
             ) else {
-                return false
+                return ScreenshotImportResult(hasPendingFiles: false, importedCount: 0)
             }
 
             let screenshots = desktopFiles.filter(ScreenshotItem.looksLikeMacScreenshot)
             var hasPending = false
+            var importedCount = 0
 
             for sourceURL in screenshots {
                 guard Self.isStableFile(
@@ -45,12 +51,16 @@ struct ScreenshotImportService: Sendable {
 
                 do {
                     try fileManager.moveItem(at: sourceURL, to: destinationURL)
+                    importedCount += 1
                 } catch {
                     hasPending = true
                 }
             }
 
-            return hasPending
+            return ScreenshotImportResult(
+                hasPendingFiles: hasPending,
+                importedCount: importedCount
+            )
         }.value
     }
 

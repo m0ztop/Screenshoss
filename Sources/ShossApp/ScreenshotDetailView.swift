@@ -6,6 +6,7 @@ struct FloatingIconButton: View {
     var isSelected = false
     let tooltip: String
     let accessibilityLabel: String
+    var tooltipXOffset: CGFloat = 0
     let action: () -> Void
     @State private var isHovered = false
 
@@ -36,7 +37,12 @@ struct FloatingIconButton: View {
         }
         .onHover { isHovered = $0 }
         .accessibilityLabel(accessibilityLabel)
-        .panelTooltip(tooltip, isPresented: isHovered, yOffset: 34)
+        .panelTooltip(
+            tooltip,
+            isPresented: isHovered,
+            xOffset: tooltipXOffset,
+            yOffset: 34
+        )
         .zIndex(isHovered ? 50 : 0)
     }
 

@@ -31,7 +31,8 @@ final class ScreenshotFilesystemIntegrationTests: XCTestCase {
         let service = ScreenshotImportService(
             desktopURL: desktopURL,
             storageURL: storageURL,
-            stableFileAge: -1
+            stableFileAge: -1,
+            stabilityCheckMilliseconds: 0
         )
 
         let result = await service.importScreenshots()
@@ -56,6 +57,30 @@ final class ScreenshotFilesystemIntegrationTests: XCTestCase {
         )
 
         let result = await service.importScreenshots()
+        XCTAssertTrue(result.hasPendingFiles)
+        XCTAssertEqual(result.importedCount, 0)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: screenshotURL.path))
+    }
+
+    func testImporterKeepsScreenshotPendingWhileFileChanges() async throws {
+        let screenshotURL = desktopURL.appendingPathComponent("Screenshot 2026-07-12 at 12.00.00.png")
+        try Self.writeTestPNG(to: screenshotURL)
+
+        let service = ScreenshotImportService(
+            desktopURL: desktopURL,
+            storageURL: storageURL,
+            stableFileAge: -1,
+            stabilityCheckMilliseconds: 250
+        )
+
+        let importTask = Task { await service.importScreenshots() }
+        try await Task.sleep(for: .milliseconds(50))
+        let fileHandle = try FileHandle(forWritingTo: screenshotURL)
+        try fileHandle.seekToEnd()
+        try fileHandle.write(contentsOf: Data([0]))
+        try fileHandle.close()
+
+        let result = await importTask.value
         XCTAssertTrue(result.hasPendingFiles)
         XCTAssertEqual(result.importedCount, 0)
         XCTAssertTrue(FileManager.default.fileExists(atPath: screenshotURL.path))

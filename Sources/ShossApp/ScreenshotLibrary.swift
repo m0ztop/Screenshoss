@@ -76,6 +76,8 @@ final class ScreenshotLibrary: ObservableObject {
     private var subfolderMonitors: [URL: DirectoryMonitor] = [:]
     private var refreshTask: Task<Void, Never>?
     private var refreshGeneration = 0
+    private var isRefreshOperationRunning = false
+    private var refreshRequestedWhileRunning = false
     private var pendingTrashedScreenshots: [PendingTrashedScreenshot] = []
     private var trashUndoDismissTask: Task<Void, Never>?
     private var isRunning = false
@@ -740,7 +742,12 @@ final class ScreenshotLibrary: ObservableObject {
         return "\(filename).\(originalExtension)"
     }
 
-    private func scheduleRefresh(retryCount: Int = 0, delayMilliseconds: Int = 2_000) {
+    private func scheduleRefresh(retryCount: Int = 0, delayMilliseconds: Int = 200) {
+        if isRefreshOperationRunning {
+            refreshRequestedWhileRunning = true
+            return
+        }
+
         refreshTask?.cancel()
         refreshGeneration += 1
         let generation = refreshGeneration
@@ -753,17 +760,35 @@ final class ScreenshotLibrary: ObservableObject {
             }
             guard !Task.isCancelled else { return }
 
+            isRefreshOperationRunning = true
             let importResult = await importService.importScreenshots()
             publishScreenshotImportIfNeeded(importResult)
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, generation == refreshGeneration else {
+                finishRefreshOperation()
+                return
+            }
             let snapshot = await storageService.scan(favoriteRelativePaths: favoritePaths)
-            guard !Task.isCancelled, generation == refreshGeneration else { return }
+            guard !Task.isCancelled, generation == refreshGeneration else {
+                finishRefreshOperation()
+                return
+            }
 
             apply(snapshot)
+            let shouldRefreshAgain = refreshRequestedWhileRunning
+            finishRefreshOperation()
+
             if importResult.hasPendingFiles, retryCount < 10 {
                 scheduleRefresh(retryCount: retryCount + 1)
+            } else if shouldRefreshAgain {
+                scheduleRefresh(delayMilliseconds: 0)
             }
         }
+    }
+
+    private func finishRefreshOperation() {
+        isRefreshOperationRunning = false
+        refreshRequestedWhileRunning = false
+        refreshTask = nil
     }
 
     private func apply(_ snapshot: ScreenshotStorageSnapshot) {
@@ -815,6 +840,8 @@ final class ScreenshotLibrary: ObservableObject {
     func refreshAndWaitForTesting() async {
         refreshTask?.cancel()
         refreshGeneration += 1
+        isRefreshOperationRunning = false
+        refreshRequestedWhileRunning = false
         let importResult = await importService.importScreenshots()
         publishScreenshotImportIfNeeded(importResult)
         let snapshot = await storageService.scan(

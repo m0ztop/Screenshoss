@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 
 struct ScreenshotImportResult: Equatable, Sendable {
     let hasPendingFiles: Bool
@@ -8,12 +9,14 @@ struct ScreenshotImportResult: Equatable, Sendable {
 struct ScreenshotImportService: Sendable {
     let desktopURL: URL
     let storageURL: URL
-    var stableFileAge: TimeInterval = 2
+    var stableFileAge: TimeInterval = 0
+    var stabilityCheckMilliseconds = 150
 
     func importScreenshots() async -> ScreenshotImportResult {
         let desktopURL = desktopURL
         let storageURL = storageURL
         let stableFileAge = stableFileAge
+        let stabilityCheckMilliseconds = stabilityCheckMilliseconds
 
         return await Task.detached(priority: .utility) {
             let fileManager = FileManager.default
@@ -34,9 +37,10 @@ struct ScreenshotImportService: Sendable {
             var importedCount = 0
 
             for sourceURL in screenshots {
-                guard Self.isStableFile(
+                guard await Self.isStableFile(
                     at: sourceURL,
                     minimumAge: stableFileAge,
+                    checkMilliseconds: stabilityCheckMilliseconds,
                     fileManager: fileManager
                 ) else {
                     hasPending = true
@@ -64,22 +68,49 @@ struct ScreenshotImportService: Sendable {
         }.value
     }
 
+    private struct FileSignature: Equatable {
+        let size: Int
+        let modificationDate: Date
+    }
+
     private static func isStableFile(
         at url: URL,
         minimumAge: TimeInterval,
+        checkMilliseconds: Int,
         fileManager: FileManager
-    ) -> Bool {
-        guard let values = try? url.resourceValues(forKeys: [
-            .contentModificationDateKey,
-            .isRegularFileKey,
-            .isSymbolicLinkKey,
-        ]),
-        values.isRegularFile == true,
-        values.isSymbolicLink != true,
-        let modificationDate = values.contentModificationDate else {
+    ) async -> Bool {
+        guard let initialSignature = fileSignature(at: url, fileManager: fileManager),
+              Date().timeIntervalSince(initialSignature.modificationDate) >= minimumAge,
+              isCompleteImage(at: url) else {
             return false
         }
 
-        return Date().timeIntervalSince(modificationDate) > minimumAge
+        if checkMilliseconds > 0 {
+            try? await Task.sleep(for: .milliseconds(checkMilliseconds))
+            guard !Task.isCancelled else { return false }
+        }
+
+        guard let finalSignature = fileSignature(at: url, fileManager: fileManager),
+              initialSignature == finalSignature else {
+            return false
+        }
+
+        return isCompleteImage(at: url)
+    }
+
+    private static func fileSignature(at url: URL, fileManager: FileManager) -> FileSignature? {
+        guard let attributes = try? fileManager.attributesOfItem(atPath: url.path),
+              attributes[.type] as? FileAttributeType == .typeRegular,
+              let modificationDate = attributes[.modificationDate] as? Date,
+              let fileSize = attributes[.size] as? NSNumber else {
+            return nil
+        }
+
+        return FileSignature(size: fileSize.intValue, modificationDate: modificationDate)
+    }
+
+    private static func isCompleteImage(at url: URL) -> Bool {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return false }
+        return CGImageSourceGetStatus(source) == .statusComplete
     }
 }

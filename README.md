@@ -15,8 +15,6 @@
   <a href="https://screenshoss.com/"><strong>Website</strong></a>
   ·
   <a href="dist/Screenshoss.dmg"><strong>Download for Mac</strong></a>
-  ·
-  <a href="https://buymeacoffee.com/uxself"><strong>Buy me a beer</strong></a>
 </p>
 
 <p align="center">

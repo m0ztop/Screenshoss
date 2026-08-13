@@ -1,54 +1,93 @@
 <h1 align="center">
-  <img src="Assets/macapp.png" alt="Screenshoss app icon" width="48" height="48" valign="middle">
+  <img src="Assets/macapp.png" alt="Screenshoss app icon" width="56" height="56" valign="middle">
   Screenshoss
 </h1>
 
 <p align="center">
-  A free macOS screenshot shelf that keeps your Desktop clean.
+  <strong>Off your Desktop. One hover away.</strong>
 </p>
 
-![Screenshoss running on macOS](docs/assets/screenshoss-hero.png)
+<p align="center">
+  A completely free, open-source screenshot shelf for macOS.
+</p>
 
-Screenshoss is a free macOS screenshot shelf. It watches for Mac screenshots, moves them out of the Desktop, and keeps them in a fast hover panel that can live at the top, left, or right edge of the screen.
+<p align="center">
+  <a href="https://screenshoss.com/"><strong>Website</strong></a>
+  ·
+  <a href="dist/Screenshoss.dmg"><strong>Download for Mac</strong></a>
+  ·
+  <a href="https://buymeacoffee.com/uxself"><strong>Buy me a beer</strong></a>
+</p>
 
-## What It Does
+<p align="center">
+  macOS 13+ · Apple Silicon + Intel · No account · No cloud · No analytics
+</p>
+
+<p align="center">
+  <img src="docs/assets/screenshoss-hero.gif" alt="Screenshoss shelf opening from the macOS notch" width="900">
+</p>
+
+Screenshoss catches each new Mac screenshot, moves it away from your Desktop, and keeps it in a fast shelf at the edge of your screen. Your screenshots stay on your Mac.
+
+## See it in action
+
+### Captured automatically
+
+Take a screenshot as usual. Screenshoss detects the new capture and moves it into the **Recent** shelf. You do not have to clean your Desktop or import a file.
+
+![A screenshot is captured automatically and saved in Screenshoss](docs/assets/screenshoss-captured-automatically.gif)
+
+### Folders, favorites, and fast selection
+
+Create real folders, keep important captures close, select multiple screenshots, and drag the selection directly into another app.
+
+![Screenshots are selected, organized, and dragged from Screenshoss](docs/assets/screenshoss-folders-favorites-selection.gif)
+
+### Top, left, or right
+
+Put the shelf where it fits your work. Use the status bar menu to move it to the top, left, or right edge. Screenshoss remembers your selection.
+
+![The Screenshoss shelf moves between the top, left, and right edges](docs/assets/screenshoss-top-left-right.gif)
+
+## What it does
 
 - Collects new macOS screenshots automatically.
-- Keeps your Desktop clean by moving screenshots into the Screenshoss screenshots folder.
-- Opens from a small notch-style shelf at the top, left, or right edge of the screen.
+- Moves screenshots from the Desktop into the Screenshoss screenshots folder.
+- Opens from a small shelf at the top, left, or right edge of the screen.
 - Shows recent screenshots in a compact grid.
-- Supports folders, drag-and-drop organization, rename, delete, favorite, copy, Finder reveal, and Preview open.
-- Supports multi-select with Shift-click and Command-click.
-- Includes a favorites view for screenshots you want to keep close.
-- Runs locally. No account, cloud sync, analytics, or network service is required.
-- Ships as a universal macOS app for Apple Silicon and Intel Macs.
+- Supports folders, favorites, rename, delete, copy, Finder reveal, and Preview open.
+- Supports multi-selection with Shift-click and Command-click.
+- Lets you drag selected screenshots into folders or other applications.
+- Runs locally without an account, cloud sync, analytics, or a network service.
+- Runs on Apple Silicon and Intel Macs.
 
 ## Download
 
-Download the latest packaged app from [`dist/Screenshoss.dmg`](dist/Screenshoss.dmg).
+Download the current universal installer:
 
-You can also download [`dist/Screenshoss.app.zip`](dist/Screenshoss.app.zip) if you prefer the zipped app bundle.
+- [`Screenshoss.dmg`](dist/Screenshoss.dmg) — recommended installer
+- [`Screenshoss.app.zip`](dist/Screenshoss.app.zip) — zipped application bundle
+
+The packaged release is signed with a Developer ID certificate and notarized by Apple.
 
 ## Install
 
 1. Download `Screenshoss.dmg`.
 2. Open the DMG.
-3. Drag `Screenshoss.app` onto the `Applications` shortcut in the installer window.
+3. Drag `Screenshoss.app` onto the **Applications** shortcut.
 4. Open Screenshoss.
 
-The packaged release is signed with a Developer ID certificate and notarized by Apple.
+## How it works
 
-## How It Works
-
-When you take a screenshot with macOS, Screenshoss imports supported screenshot image files from your Desktop into:
+Screenshoss imports supported screenshot image files from your Desktop into:
 
 ```text
 ~/Library/Application Support/Screenshoss/Screenshots
 ```
 
-On first launch, Screenshoss does not create any custom folders. The shelf starts with **Recent** and the `+` button.
+On first launch, the shelf contains **Recent** and the `+` button. Screenshoss does not create custom folders until you ask it to.
 
-When you create a folder in the app, it maps directly to a subfolder inside the Screenshoss screenshots location:
+Each folder that you create in the app maps to a subfolder:
 
 ```text
 ~/Library/Application Support/Screenshoss/Screenshots/<Your Folder Name>
@@ -56,55 +95,50 @@ When you create a folder in the app, it maps directly to a subfolder inside the 
 
 The **Recent** pill shows screenshots that are still in the main Screenshots folder. When you drag a screenshot into a custom folder, it leaves Recent and appears in that folder.
 
-## Using The Shelf
+## Use the shelf
 
-- Hover the notch to open the screenshot shelf.
-- Click a screenshot to select it and see details on the right.
+- Hover over the notch to open the shelf.
+- Click a screenshot to select it and see its details.
 - Double-click a screenshot to open it in Preview.
-- Press Space while a screenshot is selected to open macOS Quick Look.
-- Shift-click to select a range of screenshots, or Command-click to add/remove individual screenshots.
-- Press Command-C to copy the current selection.
-- Press Delete or Backspace to delete the current selection.
+- Press Space to open Quick Look for the selected screenshot.
+- Shift-click to select a range of screenshots.
+- Command-click to add or remove screenshots from the selection.
+- Press Command-C to copy the selection.
+- Press Delete or Backspace to delete the selection.
 - Drag screenshots onto folder pills to organize them.
-- Drag one selected screenshot to move the whole selection into a folder.
-- Click `X` to hide the shelf. This does not quit Screenshoss.
-- Use the status bar camera icon to show Screenshoss again.
-- Right-click the status bar icon to open the menu with **Open Screenshoss**, **Notch Position**, **Open Screenshots Folder**, and **Quit Screenshoss**.
-- Use **Notch Position** to switch between **Top Notch**, **Left Notch**, and **Right Notch**. Screenshoss remembers the last position you picked.
-- When installed in `Applications`, Screenshoss uses the native macOS login-item service to start automatically after you sign in.
+- Drag one selected screenshot to move the full selection.
+- Click `X` to hide the shelf without quitting Screenshoss.
+- Use the status bar icon to show Screenshoss again.
+- Right-click the status bar icon to open **Open Screenshoss**, **Notch Position**, **Open Screenshots Folder**, and **Quit Screenshoss**.
+- Use **Notch Position** to select **Top Notch**, **Left Notch**, or **Right Notch**.
 
-## Edit Or Build From Source
+When Screenshoss is installed in `Applications`, it uses the native macOS login-item service to start after you sign in.
 
-If you want to inspect or edit the app:
-
-1. Click **Code** on GitHub.
-2. Choose **Download ZIP**.
-3. Unzip the project.
-4. Open the folder in Xcode or your editor.
+## Build from source
 
 Requirements:
 
 - macOS 13 or later
 - Xcode with Swift 6.3 support
 
-Run tests:
+Run the tests:
 
 ```bash
 swift test
 ```
 
-Build a fresh universal app, DMG, and app zip:
+Build a universal application, DMG, and application zip:
 
 ```bash
 scripts/package_dmg.sh
 ```
 
-The release files will be written to `dist/`.
+The release files are written to `dist/`.
 
 ## Privacy
 
-Screenshoss is local-first. Screenshot files stay on your Mac unless you manually share them. The app does not require a login or upload your screenshots.
+Screenshoss is local-first. Screenshot files stay on your Mac unless you share them. The app does not require a login and does not upload your screenshots.
 
 ## License
 
-MIT. Free to use, modify, and share.
+Screenshoss uses the [MIT License](LICENSE). You can use, modify, and share it.

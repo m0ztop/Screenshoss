@@ -9,6 +9,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panelController: ShelfPanelController?
     private var statusItem: NSStatusItem?
     private var statusMenu: NSMenu?
+    private var updateMenuItem: NSMenuItem?
     private var placementItems: [ShelfPresentationMode: NSMenuItem] = [:]
     private var startupSoundPlayer: AVAudioPlayer?
     private var screenshotDeleteSoundPlayer: AVAudioPlayer?
@@ -149,6 +150,15 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         updatePlacementMenuState()
 
         menu.addItem(NSMenuItem.separator())
+        let updateItem = NSMenuItem(
+            title: "Check for Updates...",
+            action: #selector(checkForUpdates),
+            keyEquivalent: ""
+        )
+        updateItem.target = self
+        menu.addItem(updateItem)
+        updateMenuItem = updateItem
+
         let folderItem = NSMenuItem(title: "Open Screenshots Folder", action: #selector(openScreenshotsFolder), keyEquivalent: "")
         folderItem.target = self
         menu.addItem(folderItem)
@@ -191,6 +201,80 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         for (mode, item) in placementItems {
             item.state = mode == currentMode ? .on : .off
         }
+    }
+
+    @objc private func checkForUpdates() {
+        guard updateMenuItem?.isEnabled == true else { return }
+        updateMenuItem?.title = "Checking for Updates..."
+        updateMenuItem?.isEnabled = false
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                self.updateMenuItem?.title = "Check for Updates..."
+                self.updateMenuItem?.isEnabled = true
+            }
+
+            do {
+                let release = try await UpdateChecker.fetchLatestRelease()
+                self.presentUpdateResult(release)
+            } catch UpdateCheckError.noPublishedRelease {
+                self.presentNoPublishedUpdate()
+            } catch {
+                self.presentUpdateError(error)
+            }
+        }
+    }
+
+    private func presentNoPublishedUpdate() {
+        let alert = NSAlert()
+        alert.messageText = "No updates are available"
+        alert.informativeText = "There is no newer published Screenshoss release. You have version \(currentAppVersion)."
+        alert.addButton(withTitle: "OK")
+        showAlert(alert)
+        alert.runModal()
+    }
+
+    private func presentUpdateResult(_ release: ScreenshossRelease) {
+        let currentVersion = currentAppVersion
+        let alert = NSAlert()
+
+        if UpdateChecker.isNewerVersion(release.version, than: currentVersion) {
+            alert.messageText = "Screenshoss \(release.version) is available"
+            alert.informativeText = "You have version \(currentVersion)."
+            alert.addButton(withTitle: "Download Update")
+            alert.addButton(withTitle: "Later")
+            showAlert(alert)
+            if alert.runModal() == .alertFirstButtonReturn {
+                NSWorkspace.shared.open(release.downloadURL)
+            }
+        } else {
+            alert.messageText = "Screenshoss is up to date"
+            alert.informativeText = "You have the newest version (\(currentVersion))."
+            alert.addButton(withTitle: "OK")
+            showAlert(alert)
+            alert.runModal()
+        }
+    }
+
+    private func presentUpdateError(_ error: Error) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Could not check for updates"
+        alert.informativeText = (error as? LocalizedError)?.errorDescription
+            ?? "Check your internet connection and try again."
+        alert.addButton(withTitle: "OK")
+        showAlert(alert)
+        alert.runModal()
+    }
+
+    private func showAlert(_ alert: NSAlert) {
+        NSApp.activate(ignoringOtherApps: true)
+        alert.window.level = .statusBar
+    }
+
+    private var currentAppVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
     }
 
     @objc private func openScreenshotsFolder() {

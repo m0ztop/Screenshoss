@@ -114,6 +114,7 @@ final class ShelfPanelController: NSObject {
     private let sideCollapsedSize = CGSize(width: 34, height: 160)
     private let sideExpandedSize = CGSize(width: 520, height: 760)
     private let sideExpandedEdgeInset: CGFloat = 8
+    private let firstLaunchHintController = FirstLaunchHintController()
     private var isHidden = false
     private var quickLookSource: QuickLookSource?
     private var selectedItemCancellable: AnyCancellable?
@@ -224,10 +225,12 @@ final class ShelfPanelController: NSObject {
             NSAnimationContext.endGrouping()
 
             library.start()
+            scheduleFirstLaunchHint(anchorFrame: finalFrame)
         } else {
             setExpanded(false, animated: false)
             panel.orderFrontRegardless()
             library.start()
+            scheduleFirstLaunchHint(anchorFrame: panel.frame)
         }
     }
 
@@ -235,6 +238,7 @@ final class ShelfPanelController: NSObject {
         isHidden = true
         library.isExpanded = false
         closeQuickLook()
+        firstLaunchHintController.dismiss()
         panel.orderOut(nil)
     }
 
@@ -250,6 +254,8 @@ final class ShelfPanelController: NSObject {
         panel.alphaValue = 1
         panel.setFrame(targetFrame(for: false), display: true)
         panel.orderFrontRegardless()
+        updateFirstLaunchHintPlacement()
+        scheduleFirstLaunchHint(anchorFrame: panel.frame)
     }
 
     func cyclePresentationMode() {
@@ -260,6 +266,8 @@ final class ShelfPanelController: NSObject {
         panel.alphaValue = 1
         panel.setFrame(targetFrame(for: false), display: true)
         panel.orderFrontRegardless()
+        updateFirstLaunchHintPlacement()
+        scheduleFirstLaunchHint(anchorFrame: panel.frame)
     }
 
     private func toggleQuickLook() {
@@ -303,6 +311,10 @@ final class ShelfPanelController: NSObject {
             return
         }
         let frame = targetFrame(for: isExpanded)
+
+        if isExpanded {
+            firstLaunchHintController.dismiss()
+        }
 
         if animated, !isExpanded {
             panel.resignKey()
@@ -472,8 +484,28 @@ final class ShelfPanelController: NSObject {
         guard panel.isVisible else { return }
         panel.setFrame(targetFrame(for: library.isExpanded), display: true)
         panel.orderFrontRegardless()
+        updateFirstLaunchHintPlacement()
+        if !library.isExpanded {
+            scheduleFirstLaunchHint(anchorFrame: panel.frame)
+        }
         if library.isExpanded {
             panel.makeKey()
         }
+    }
+
+    private func scheduleFirstLaunchHint(anchorFrame: CGRect) {
+        firstLaunchHintController.scheduleIfNeeded(
+            anchorFrame: anchorFrame,
+            mode: library.presentationMode,
+            screen: targetScreen()
+        )
+    }
+
+    private func updateFirstLaunchHintPlacement() {
+        firstLaunchHintController.updatePlacement(
+            anchorFrame: panel.frame,
+            mode: library.presentationMode,
+            screen: targetScreen()
+        )
     }
 }

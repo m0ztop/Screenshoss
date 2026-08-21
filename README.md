@@ -109,6 +109,7 @@ The **Recent** pill shows screenshots that are still in the main Screenshots fol
 - Use the status bar icon to show Screenshoss again.
 - Right-click the status bar icon to open **Open Screenshoss**, **Notch Position**, **Open Screenshots Folder**, and **Quit Screenshoss**.
 - Use **Notch Position** to select **Top Notch**, **Left Notch**, or **Right Notch**.
+- Select **Check for Updates...** to compare your installed version with the latest GitHub Release.
 
 When Screenshoss is installed in `Applications`, it uses the native macOS login-item service to start after you sign in.
 
@@ -135,7 +136,7 @@ The release files are written to `dist/`.
 
 ## Privacy
 
-Screenshoss is local-first. Screenshot files stay on your Mac unless you share them. The app does not require a login and does not upload your screenshots.
+Screenshoss is local-first. Screenshot files stay on your Mac unless you share them. The app does not require a login and does not upload your screenshots. It contacts the GitHub Releases API only when you select **Check for Updates...**.
 
 ## License
 

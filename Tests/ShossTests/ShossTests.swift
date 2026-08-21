@@ -105,3 +105,36 @@ final class LooksLikeMacScreenshotTests: XCTestCase {
         XCTAssertFalse(ScreenshotLibrary.isSafeFavoriteRelativePath(".hidden/Screenshot.png"))
     }
 }
+
+final class UpdateCheckerTests: XCTestCase {
+    func testDetectsNewerSemanticVersion() {
+        XCTAssertTrue(UpdateChecker.isNewerVersion("1.1.0", than: "1.0.9"))
+        XCTAssertTrue(UpdateChecker.isNewerVersion("v2.0", than: "1.9.9"))
+        XCTAssertTrue(UpdateChecker.isNewerVersion("1.10.0", than: "1.9.0"))
+    }
+
+    func testTreatsEquivalentVersionsAsCurrent() {
+        XCTAssertFalse(UpdateChecker.isNewerVersion("1.0", than: "1.0.0"))
+        XCTAssertFalse(UpdateChecker.isNewerVersion("v1.0.0", than: "1.0"))
+        XCTAssertFalse(UpdateChecker.isNewerVersion("1.0.0", than: "1.0.1"))
+    }
+}
+
+@MainActor
+final class FirstLaunchHintControllerTests: XCTestCase {
+    func testDifferentAppInstallationsHaveDifferentIdentifiers() throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let firstURL = rootURL.appendingPathComponent("First.app", isDirectory: true)
+        let secondURL = rootURL.appendingPathComponent("Second.app", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        try FileManager.default.createDirectory(at: firstURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: secondURL, withIntermediateDirectories: true)
+
+        XCTAssertNotEqual(
+            FirstLaunchHintController.installationIdentifier(for: firstURL),
+            FirstLaunchHintController.installationIdentifier(for: secondURL)
+        )
+    }
+}

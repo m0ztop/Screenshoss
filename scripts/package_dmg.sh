@@ -4,6 +4,12 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$PROJECT_DIR"
 
+APP_VERSION="$(tr -d '[:space:]' < "$PROJECT_DIR/VERSION")"
+if [[ ! "$APP_VERSION" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+    echo "VERSION must contain a semantic version such as 1.1.0." >&2
+    exit 1
+fi
+
 ARM64_BUILD_DIR=".build/arm64-apple-macosx/release"
 X86_64_BUILD_DIR=".build/x86_64-apple-macosx/release"
 DIST_DIR="dist"
@@ -116,6 +122,8 @@ cat > "$APP_DIR/Contents/Info.plist" << 'PLIST'
 </dict>
 </plist>
 PLIST
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $APP_VERSION" "$APP_DIR/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $APP_VERSION" "$APP_DIR/Contents/Info.plist"
 
 echo "=== Signing app bundle ($SIGNING_MODE) ==="
 xattr -cr "$APP_DIR" || true
@@ -138,6 +146,9 @@ if [ -n "$NOTARY_PROFILE" ]; then
     xcrun stapler validate -v "$APP_DIR"
     spctl --assess --type execute --verbose=2 "$APP_DIR"
 fi
+
+echo "=== Creating zipped app bundle ==="
+ditto -c -k --norsrc --keepParent "$APP_DIR" "$APP_ZIP_PATH"
 
 echo "=== Creating DMG ==="
 rm -f "$DMG_PATH" "$DMG_RW_PATH"
@@ -279,29 +290,40 @@ trap - EXIT
 
 hdiutil convert "$DMG_RW_PATH" -format UDZO -imagekey zlib-level=9 -o "$DMG_PATH" -ov >/dev/null
 
+echo "=== Publishing release artifacts ==="
+mkdir -p "$DIST_DIR"
+mv -f "$APP_ZIP_PATH" "$OUTPUT_APP_ZIP_PATH"
+mv -f "$DMG_PATH" "$OUTPUT_DMG_PATH"
+
+echo "=== Verifying final release artifacts ==="
+hdiutil verify "$OUTPUT_DMG_PATH" >/dev/null
+VERIFY_DIR="$STAGING_DIR/verify"
+mkdir -p "$VERIFY_DIR"
+ditto -x -k "$OUTPUT_APP_ZIP_PATH" "$VERIFY_DIR"
+codesign --verify --deep --strict --verbose=2 "$VERIFY_DIR/Screenshoss.app"
+test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$VERIFY_DIR/Screenshoss.app/Contents/Info.plist")" = "$APP_VERSION"
+
 if [ "$CODESIGN_IDENTITY" != "-" ]; then
-    echo "=== Signing DMG ($SIGNING_MODE) ==="
-    codesign --force --timestamp --sign "$CODESIGN_IDENTITY" "$DMG_PATH"
+    echo "=== Signing final DMG ($SIGNING_MODE) ==="
+    xattr -cr "$OUTPUT_DMG_PATH" || true
+    codesign --force --timestamp --sign "$CODESIGN_IDENTITY" "$OUTPUT_DMG_PATH"
+    codesign --verify --strict --verbose=2 "$OUTPUT_DMG_PATH"
 fi
 
 if [ -n "$NOTARY_PROFILE" ]; then
     echo "=== Notarizing DMG ($NOTARIZATION_MODE) ==="
-    xcrun notarytool submit "$DMG_PATH" \
+    xcrun notarytool submit "$OUTPUT_DMG_PATH" \
         --keychain-profile "$NOTARY_PROFILE" \
         --wait \
         --timeout "$NOTARY_WAIT_TIMEOUT"
-    xcrun stapler staple -v "$DMG_PATH"
-    xcrun stapler validate -v "$DMG_PATH"
-    spctl --assess --type open --context context:primary-signature --verbose=2 "$DMG_PATH"
+    xcrun stapler staple -v "$OUTPUT_DMG_PATH"
+    xcrun stapler validate -v "$OUTPUT_DMG_PATH"
+    spctl --assess --type open --context context:primary-signature --verbose=2 "$OUTPUT_DMG_PATH"
 fi
 
-echo "=== Creating zipped app bundle ==="
-ditto -c -k --norsrc --keepParent "$APP_DIR" "$APP_ZIP_PATH"
-
-echo "=== Publishing verified release artifacts ==="
-mkdir -p "$DIST_DIR"
-mv -f "$APP_ZIP_PATH" "$OUTPUT_APP_ZIP_PATH"
-mv -f "$DMG_PATH" "$OUTPUT_DMG_PATH"
+if [ "$CODESIGN_IDENTITY" != "-" ]; then
+    codesign --verify --strict --verbose=2 "$OUTPUT_DMG_PATH"
+fi
 
 echo "=== Cleaning up packaging workspace ==="
 rm -rf "$PACKAGE_ROOT"
@@ -309,5 +331,6 @@ rm -rf "$PACKAGE_ROOT"
 echo "=== Done ==="
 echo "App ZIP: $OUTPUT_APP_ZIP_PATH"
 echo "DMG: $OUTPUT_DMG_PATH"
+echo "Version: $APP_VERSION"
 echo "Signing: $SIGNING_MODE"
 echo "Notarization: $NOTARIZATION_MODE"

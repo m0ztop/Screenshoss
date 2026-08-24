@@ -4,13 +4,17 @@ import UniformTypeIdentifiers
 
 struct ShelfView: View {
     @ObservedObject var library: ScreenshotLibrary
+    @ObservedObject var displayState: ShelfDisplayState
     @State private var hoverCollapseTask: Task<Void, Never>?
 
     var body: some View {
         Group {
             switch library.presentationMode {
             case .top:
-                TopNotchShelfView(library: library)
+                TopNotchShelfView(
+                    library: library,
+                    hidesCollapsedVisual: displayState.hidesCollapsedTopNotchVisual
+                )
             case .left, .right:
                 SideNotchShelfView(library: library, side: library.presentationMode)
             }
@@ -110,6 +114,7 @@ private struct TrashUndoBar: View {
 }
 private struct TopNotchShelfView: View {
     @ObservedObject var library: ScreenshotLibrary
+    let hidesCollapsedVisual: Bool
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -123,7 +128,15 @@ private struct TopNotchShelfView: View {
                         )
                     )
             } else {
-                CollapsedNotchView(importGeneration: library.screenshotImportGeneration)
+                Group {
+                    if hidesCollapsedVisual {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .frame(width: 160, height: 34)
+                    } else {
+                        CollapsedNotchView(importGeneration: library.screenshotImportGeneration)
+                    }
+                }
                     .zIndex(1)
                     .transition(
                         .asymmetric(

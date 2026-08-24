@@ -120,6 +120,66 @@ final class UpdateCheckerTests: XCTestCase {
     }
 }
 
+final class ShelfScreenGeometryTests: XCTestCase {
+    func testDetectsNativeCameraHousingFromSafeAndAuxiliaryAreas() {
+        XCTAssertTrue(
+            ShelfScreenGeometry.hasCameraHousing(
+                safeAreaTopInset: 32,
+                auxiliaryTopLeftArea: CGRect(x: 0, y: 968, width: 720, height: 32),
+                auxiliaryTopRightArea: CGRect(x: 820, y: 968, width: 620, height: 32)
+            )
+        )
+    }
+
+    func testDoesNotTreatAStandardDisplayAsAComputerWithCameraHousing() {
+        XCTAssertFalse(
+            ShelfScreenGeometry.hasCameraHousing(
+                safeAreaTopInset: 0,
+                auxiliaryTopLeftArea: nil,
+                auxiliaryTopRightArea: nil
+            )
+        )
+    }
+
+    func testNativeCameraHousingKeepsCollapsedTargetAtScreenTop() {
+        let screenFrame = CGRect(x: 0, y: 0, width: 1_440, height: 900)
+        let visibleFrame = CGRect(x: 0, y: 0, width: 1_440, height: 868)
+
+        XCTAssertEqual(
+            ShelfScreenGeometry.topEdgeY(
+                isExpanded: false,
+                hasCameraHousing: true,
+                screenFrame: screenFrame,
+                visibleFrame: visibleFrame
+            ),
+            screenFrame.maxY
+        )
+        XCTAssertEqual(
+            ShelfScreenGeometry.topEdgeY(
+                isExpanded: true,
+                hasCameraHousing: true,
+                screenFrame: screenFrame,
+                visibleFrame: visibleFrame
+            ),
+            visibleFrame.maxY
+        )
+    }
+
+    func testMenuBarRetentionFrameCoversAreaAboveExpandedPanel() {
+        let panelFrame = CGRect(x: 130, y: 392, width: 1_180, height: 476)
+        let screenFrame = CGRect(x: 0, y: 0, width: 1_440, height: 900)
+        let visibleFrame = CGRect(x: 0, y: 0, width: 1_440, height: 868)
+        let retentionFrame = ShelfScreenGeometry.topMenuBarRetentionFrame(
+            panelFrame: panelFrame,
+            screenFrame: screenFrame,
+            visibleFrame: visibleFrame
+        )
+
+        XCTAssertTrue(retentionFrame.contains(CGPoint(x: panelFrame.midX, y: 884)))
+        XCTAssertFalse(retentionFrame.contains(CGPoint(x: 20, y: 884)))
+    }
+}
+
 @MainActor
 final class FirstLaunchHintControllerTests: XCTestCase {
     func testDifferentAppInstallationsHaveDifferentIdentifiers() throws {

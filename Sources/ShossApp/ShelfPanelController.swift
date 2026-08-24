@@ -106,9 +106,53 @@ private final class TransparentHostingView<Content: View>: NSHostingView<Content
 }
 
 @MainActor
+final class ShelfDisplayState: ObservableObject {
+    @Published var hidesCollapsedTopNotchVisual = false
+}
+
+enum ShelfScreenGeometry {
+    static func hasCameraHousing(
+        safeAreaTopInset: CGFloat,
+        auxiliaryTopLeftArea: CGRect?,
+        auxiliaryTopRightArea: CGRect?
+    ) -> Bool {
+        guard safeAreaTopInset > 0 else { return false }
+        guard let auxiliaryTopLeftArea, let auxiliaryTopRightArea else { return false }
+        return !auxiliaryTopLeftArea.isEmpty && !auxiliaryTopRightArea.isEmpty
+    }
+
+    static func topEdgeY(
+        isExpanded: Bool,
+        hasCameraHousing: Bool,
+        screenFrame: CGRect,
+        visibleFrame: CGRect
+    ) -> CGFloat {
+        if isExpanded, hasCameraHousing {
+            return visibleFrame.maxY
+        }
+        return screenFrame.maxY
+    }
+
+    static func topMenuBarRetentionFrame(
+        panelFrame: CGRect,
+        screenFrame: CGRect,
+        visibleFrame: CGRect,
+        horizontalPadding: CGFloat = 18
+    ) -> CGRect {
+        CGRect(
+            x: panelFrame.minX - horizontalPadding,
+            y: visibleFrame.maxY,
+            width: panelFrame.width + horizontalPadding * 2,
+            height: max(0, screenFrame.maxY - visibleFrame.maxY)
+        )
+    }
+}
+
+@MainActor
 final class ShelfPanelController: NSObject {
     private let library: ScreenshotLibrary
     private let panel: ShelfPanel
+    private let displayState = ShelfDisplayState()
     private let topCollapsedSize = CGSize(width: 160, height: 34)
     private let topExpandedSize = CGSize(width: 1_180, height: 476)
     private let sideCollapsedSize = CGSize(width: 34, height: 160)
@@ -135,8 +179,9 @@ final class ShelfPanelController: NSObject {
         super.init()
 
         configureFloatingPanel(panel)
+        updateDisplayState(for: targetScreen())
 
-        let contentView = ShelfView(library: library)
+        let contentView = ShelfView(library: library, displayState: displayState)
         panel.contentView = TransparentHostingView(rootView: contentView)
 
         library.expansionDidChange = { [weak self] isExpanded in
@@ -209,6 +254,7 @@ final class ShelfPanelController: NSObject {
 
     func show() {
         isHidden = false
+        updateDisplayState(for: targetScreen())
         if !Self.hasPerformedEntranceAnimation {
             Self.hasPerformedEntranceAnimation = true
             let finalFrame = targetFrame(for: false)
@@ -251,6 +297,7 @@ final class ShelfPanelController: NSObject {
         library.isExpanded = false
         closeQuickLook()
         library.setPresentationMode(mode)
+        updateDisplayState(for: targetScreen())
         panel.alphaValue = 1
         panel.setFrame(targetFrame(for: false), display: true)
         panel.orderFrontRegardless()
@@ -263,6 +310,7 @@ final class ShelfPanelController: NSObject {
         library.isExpanded = false
         closeQuickLook()
         library.cyclePresentationMode()
+        updateDisplayState(for: targetScreen())
         panel.alphaValue = 1
         panel.setFrame(targetFrame(for: false), display: true)
         panel.orderFrontRegardless()
@@ -351,7 +399,14 @@ final class ShelfPanelController: NSObject {
         case .top:
             let size = isExpanded ? constrainedTopExpandedSize(in: screenFrame) : topCollapsedSize
             let x = screenFrame.midX - size.width / 2
-            let y = topEdgeY(for: screen) - size.height
+            let hasCameraHousing = screen.map(hasNativeCameraHousing) ?? false
+            let topEdgeY = ShelfScreenGeometry.topEdgeY(
+                isExpanded: isExpanded,
+                hasCameraHousing: hasCameraHousing,
+                screenFrame: screenFrame,
+                visibleFrame: visibleFrame
+            )
+            let y = topEdgeY - size.height
             return CGRect(origin: CGPoint(x: x, y: y), size: size)
         case .left:
             let size = isExpanded ? constrainedSideExpandedSize(in: visibleFrame) : sideCollapsedSize
@@ -406,8 +461,24 @@ final class ShelfPanelController: NSObject {
             return true
         }
 
-        let hoverFrame = panel.frame.insetBy(dx: -18, dy: -18)
-        return !hoverFrame.contains(NSEvent.mouseLocation)
+        let mouseLocation = NSEvent.mouseLocation
+        let collapsedHoverFrame = targetFrame(for: false).insetBy(dx: -18, dy: -18)
+        let expandedHoverFrame = targetFrame(for: true).insetBy(dx: -18, dy: -18)
+        if collapsedHoverFrame.contains(mouseLocation) || expandedHoverFrame.contains(mouseLocation) {
+            return false
+        }
+
+        if library.presentationMode == .top,
+           let screen = targetScreen(),
+           ShelfScreenGeometry.topMenuBarRetentionFrame(
+               panelFrame: targetFrame(for: true),
+               screenFrame: screen.frame,
+               visibleFrame: screen.visibleFrame
+           ).contains(mouseLocation) {
+            return false
+        }
+
+        return true
     }
 
     private func targetScreen() -> NSScreen? {
@@ -421,27 +492,16 @@ final class ShelfPanelController: NSObject {
         return NSScreen.screens.first
     }
 
-    private func topEdgeY(for screen: NSScreen?) -> CGFloat {
-        guard let screen else { return 900 }
-        if shouldAvoidBuiltInCameraArea(on: screen) {
-            return screen.visibleFrame.maxY
-        }
-        return screen.frame.maxY
+    private func hasNativeCameraHousing(_ screen: NSScreen) -> Bool {
+        ShelfScreenGeometry.hasCameraHousing(
+            safeAreaTopInset: screen.safeAreaInsets.top,
+            auxiliaryTopLeftArea: screen.auxiliaryTopLeftArea,
+            auxiliaryTopRightArea: screen.auxiliaryTopRightArea
+        )
     }
 
-    private func shouldAvoidBuiltInCameraArea(on screen: NSScreen) -> Bool {
-        let menuBarInset = screen.frame.maxY - screen.visibleFrame.maxY
-        guard menuBarInset > 0 else { return false }
-
-        let screenName = screen.localizedName.lowercased()
-        let looksBuiltIn = screenName.contains("built-in")
-            || screenName.contains("retina")
-            || screenName.contains("color lcd")
-            || screenName.contains("liquid")
-
-        let size = screen.frame.size
-        let looksLaptopSized = max(size.width, size.height) <= 1_800 && min(size.width, size.height) <= 1_200
-        return looksBuiltIn || looksLaptopSized
+    private func updateDisplayState(for screen: NSScreen?) {
+        displayState.hidesCollapsedTopNotchVisual = screen.map(hasNativeCameraHousing) ?? false
     }
 
     private func constrainedTopExpandedSize(in screenFrame: CGRect) -> CGSize {
@@ -482,6 +542,7 @@ final class ShelfPanelController: NSObject {
 
     private func repositionForCurrentDisplay() {
         guard panel.isVisible else { return }
+        updateDisplayState(for: targetScreen())
         panel.setFrame(targetFrame(for: library.isExpanded), display: true)
         panel.orderFrontRegardless()
         updateFirstLaunchHintPlacement()

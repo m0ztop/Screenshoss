@@ -15,10 +15,13 @@ X86_64_BUILD_DIR=".build/x86_64-apple-macosx/release"
 DIST_DIR="dist"
 OUTPUT_APP_ZIP_PATH="$DIST_DIR/Screenshoss.app.zip"
 OUTPUT_DMG_PATH="$DIST_DIR/Screenshoss.dmg"
+OUTPUT_APPCAST_PATH="$DIST_DIR/appcast.xml"
 PACKAGE_ROOT="/private/tmp/shoss-package"
 APP_DIR="$PACKAGE_ROOT/Screenshoss.app"
 STAGING_DIR="$PACKAGE_ROOT/staging"
 APP_ZIP_PATH="$STAGING_DIR/Screenshoss.app.zip"
+APPCAST_PATH="$STAGING_DIR/appcast.xml"
+APPCAST_ARCHIVE_DIR="$STAGING_DIR/appcast-archive"
 ICONSET_DIR="$STAGING_DIR/Screenshoss.iconset"
 DMG_BACKGROUND_DIR="$STAGING_DIR/dmg-background"
 DMG_MOUNT_DIR=""
@@ -29,6 +32,13 @@ NOTARY_ZIP_PATH="$STAGING_DIR/Screenshoss-notary.zip"
 CODESIGN_IDENTITY="${CODESIGN_IDENTITY:--}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-}"
 NOTARY_WAIT_TIMEOUT="${NOTARY_WAIT_TIMEOUT:-30m}"
+SPARKLE_ROOT="$PROJECT_DIR/.build/artifacts/sparkle/Sparkle"
+SPARKLE_FRAMEWORK_SOURCE="$SPARKLE_ROOT/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework"
+SPARKLE_FRAMEWORK_DEST="$APP_DIR/Contents/Frameworks/Sparkle.framework"
+SPARKLE_PUBLIC_KEY="${SPARKLE_PUBLIC_KEY:-MTtzSj6QtycMJ+PCdVPwQfs+j0pGXCnQWDiGeGRMhYM=}"
+SPARKLE_KEY_ACCOUNT="${SPARKLE_KEY_ACCOUNT:-com.mert.screenshoss}"
+SPARKLE_FEED_URL="${SPARKLE_FEED_URL:-https://github.com/m0ztop/Screenshoss/releases/latest/download/appcast.xml}"
+SPARKLE_DOWNLOAD_URL_PREFIX="${SPARKLE_DOWNLOAD_URL_PREFIX:-https://github.com/m0ztop/Screenshoss/releases/download/v$APP_VERSION/}"
 SIGNING_MODE="ad-hoc"
 NOTARIZATION_MODE="disabled"
 
@@ -53,6 +63,7 @@ rm -rf "$PACKAGE_ROOT" "$DIST_DIR/Screenshoss.app" "$DIST_DIR/Shoss.app" "$DIST_
 rm -f "$DIST_DIR/Shoss.dmg"
 mkdir -p "$APP_DIR/Contents/MacOS"
 mkdir -p "$APP_DIR/Contents/Resources"
+mkdir -p "$APP_DIR/Contents/Frameworks"
 mkdir -p "$ICONSET_DIR"
 
 echo "=== Copying startup sound ==="
@@ -72,6 +83,17 @@ lipo -create \
     -output "$APP_DIR/Contents/MacOS/Shoss"
 chmod +x "$APP_DIR/Contents/MacOS/Shoss"
 lipo -archs "$APP_DIR/Contents/MacOS/Shoss"
+
+echo "=== Embedding Sparkle framework ==="
+if [ ! -d "$SPARKLE_FRAMEWORK_SOURCE" ]; then
+    echo "Sparkle.framework was not found. Run 'swift package resolve' first." >&2
+    exit 1
+fi
+ditto "$SPARKLE_FRAMEWORK_SOURCE" "$SPARKLE_FRAMEWORK_DEST"
+
+# Screenshoss is not sandboxed, so it does not use Sparkle's sandbox-only XPC services.
+rm -rf "$SPARKLE_FRAMEWORK_DEST/Versions/B/XPCServices"
+rm -f "$SPARKLE_FRAMEWORK_DEST/XPCServices"
 
 echo "=== Generating .icns from Assets/macapp.png ==="
 SRC_PNG="Assets/macapp.png"
@@ -119,19 +141,34 @@ cat > "$APP_DIR/Contents/Info.plist" << 'PLIST'
 	<true/>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUAutomaticallyUpdate</key>
+	<false/>
 </dict>
 </plist>
 PLIST
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $APP_VERSION" "$APP_DIR/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $APP_VERSION" "$APP_DIR/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Add :SUFeedURL string $SPARKLE_FEED_URL" "$APP_DIR/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Add :SUPublicEDKey string $SPARKLE_PUBLIC_KEY" "$APP_DIR/Contents/Info.plist"
 
 echo "=== Signing app bundle ($SIGNING_MODE) ==="
 xattr -cr "$APP_DIR" || true
-if [ "$CODESIGN_IDENTITY" = "-" ]; then
-    codesign --force --deep --sign - "$APP_DIR"
-else
-    codesign --force --deep --options runtime --timestamp --sign "$CODESIGN_IDENTITY" "$APP_DIR"
-fi
+
+sign_bundle_component() {
+    local component_path="$1"
+    if [ "$CODESIGN_IDENTITY" = "-" ]; then
+        codesign --force --sign - "$component_path"
+    else
+        codesign --force --options runtime --timestamp --sign "$CODESIGN_IDENTITY" "$component_path"
+    fi
+}
+
+sign_bundle_component "$SPARKLE_FRAMEWORK_DEST/Versions/B/Autoupdate"
+sign_bundle_component "$SPARKLE_FRAMEWORK_DEST/Versions/B/Updater.app"
+sign_bundle_component "$SPARKLE_FRAMEWORK_DEST"
+sign_bundle_component "$APP_DIR"
 codesign --verify --deep --strict --verbose=2 "$APP_DIR"
 
 if [ -n "$NOTARY_PROFILE" ]; then
@@ -149,6 +186,23 @@ fi
 
 echo "=== Creating zipped app bundle ==="
 ditto -c -k --norsrc --keepParent "$APP_DIR" "$APP_ZIP_PATH"
+
+echo "=== Creating signed Sparkle appcast ==="
+rm -rf "$APPCAST_ARCHIVE_DIR"
+mkdir -p "$APPCAST_ARCHIVE_DIR"
+cp "$APP_ZIP_PATH" "$APPCAST_ARCHIVE_DIR/"
+"$SPARKLE_ROOT/bin/generate_appcast" \
+    --account "$SPARKLE_KEY_ACCOUNT" \
+    --download-url-prefix "$SPARKLE_DOWNLOAD_URL_PREFIX" \
+    --link "https://github.com/m0ztop/Screenshoss" \
+    --maximum-versions 1 \
+    --maximum-deltas 0 \
+    -o "$APPCAST_PATH" \
+    "$APPCAST_ARCHIVE_DIR"
+test -s "$APPCAST_PATH"
+xmllint --noout "$APPCAST_PATH"
+grep -Fq "url=\"${SPARKLE_DOWNLOAD_URL_PREFIX}Screenshoss.app.zip\"" "$APPCAST_PATH"
+grep -Eq 'sparkle:edSignature="[^"]+"' "$APPCAST_PATH"
 
 echo "=== Creating DMG ==="
 rm -f "$DMG_PATH" "$DMG_RW_PATH"
@@ -294,6 +348,7 @@ echo "=== Publishing release artifacts ==="
 mkdir -p "$DIST_DIR"
 mv -f "$APP_ZIP_PATH" "$OUTPUT_APP_ZIP_PATH"
 mv -f "$DMG_PATH" "$OUTPUT_DMG_PATH"
+mv -f "$APPCAST_PATH" "$OUTPUT_APPCAST_PATH"
 
 echo "=== Verifying final release artifacts ==="
 hdiutil verify "$OUTPUT_DMG_PATH" >/dev/null
@@ -302,6 +357,18 @@ mkdir -p "$VERIFY_DIR"
 ditto -x -k "$OUTPUT_APP_ZIP_PATH" "$VERIFY_DIR"
 codesign --verify --deep --strict --verbose=2 "$VERIFY_DIR/Screenshoss.app"
 test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$VERIFY_DIR/Screenshoss.app/Contents/Info.plist")" = "$APP_VERSION"
+test "$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "$VERIFY_DIR/Screenshoss.app/Contents/Info.plist")" = "$SPARKLE_FEED_URL"
+test "$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$VERIFY_DIR/Screenshoss.app/Contents/Info.plist")" = "$SPARKLE_PUBLIC_KEY"
+test -d "$VERIFY_DIR/Screenshoss.app/Contents/Frameworks/Sparkle.framework"
+test -s "$OUTPUT_APPCAST_PATH"
+APP_ARCHS="$(lipo -archs "$VERIFY_DIR/Screenshoss.app/Contents/MacOS/Shoss")"
+SPARKLE_ARCHS="$(lipo -archs "$VERIFY_DIR/Screenshoss.app/Contents/Frameworks/Sparkle.framework/Versions/B/Sparkle")"
+[[ "$APP_ARCHS" == *arm64* && "$APP_ARCHS" == *x86_64* ]]
+[[ "$SPARKLE_ARCHS" == *arm64* && "$SPARKLE_ARCHS" == *x86_64* ]]
+test ! -e "$VERIFY_DIR/Screenshoss.app/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices"
+xmllint --noout "$OUTPUT_APPCAST_PATH"
+grep -Fq "url=\"${SPARKLE_DOWNLOAD_URL_PREFIX}Screenshoss.app.zip\"" "$OUTPUT_APPCAST_PATH"
+grep -Eq 'sparkle:edSignature="[^"]+"' "$OUTPUT_APPCAST_PATH"
 
 if [ "$CODESIGN_IDENTITY" != "-" ]; then
     echo "=== Signing final DMG ($SIGNING_MODE) ==="
@@ -331,6 +398,7 @@ rm -rf "$PACKAGE_ROOT"
 echo "=== Done ==="
 echo "App ZIP: $OUTPUT_APP_ZIP_PATH"
 echo "DMG: $OUTPUT_DMG_PATH"
+echo "Appcast: $OUTPUT_APPCAST_PATH"
 echo "Version: $APP_VERSION"
 echo "Signing: $SIGNING_MODE"
 echo "Notarization: $NOTARIZATION_MODE"

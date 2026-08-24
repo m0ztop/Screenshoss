@@ -106,20 +106,6 @@ final class LooksLikeMacScreenshotTests: XCTestCase {
     }
 }
 
-final class UpdateCheckerTests: XCTestCase {
-    func testDetectsNewerSemanticVersion() {
-        XCTAssertTrue(UpdateChecker.isNewerVersion("1.1.0", than: "1.0.9"))
-        XCTAssertTrue(UpdateChecker.isNewerVersion("v2.0", than: "1.9.9"))
-        XCTAssertTrue(UpdateChecker.isNewerVersion("1.10.0", than: "1.9.0"))
-    }
-
-    func testTreatsEquivalentVersionsAsCurrent() {
-        XCTAssertFalse(UpdateChecker.isNewerVersion("1.0", than: "1.0.0"))
-        XCTAssertFalse(UpdateChecker.isNewerVersion("v1.0.0", than: "1.0"))
-        XCTAssertFalse(UpdateChecker.isNewerVersion("1.0.0", than: "1.0.1"))
-    }
-}
-
 final class ShelfScreenGeometryTests: XCTestCase {
     func testDetectsNativeCameraHousingFromSafeAndAuxiliaryAreas() {
         XCTAssertTrue(

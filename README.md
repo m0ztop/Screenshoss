@@ -109,7 +109,9 @@ The **Recent** pill shows screenshots that are still in the main Screenshots fol
 - Use the status bar icon to show Screenshoss again.
 - Right-click the status bar icon to open **Open Screenshoss**, **Notch Position**, **Open Screenshots Folder**, and **Quit Screenshoss**.
 - Use **Notch Position** to select **Top Notch**, **Left Notch**, or **Right Notch**.
-- Select **Check for Updates...** to compare your installed version with the latest GitHub Release.
+- Select **Check for Updates...** to check for a new version inside the app.
+- When an update is available, Screenshoss shows the native update window with **Install Update** and **Later** options.
+- Screenshoss also checks for updates in the background and shows the same update window when a new version is available.
 
 When Screenshoss is installed in `Applications`, it uses the native macOS login-item service to start after you sign in.
 
@@ -126,17 +128,21 @@ Run the tests:
 swift test
 ```
 
-Build a universal application, DMG, and application zip:
+Build a universal application, DMG, application zip, and signed Sparkle appcast:
 
 ```bash
 scripts/package_dmg.sh
 ```
 
-The release files are written to `dist/`.
+The release files are written to `dist/`:
+
+- `Screenshoss.dmg`
+- `Screenshoss.app.zip`
+- `appcast.xml`
 
 ## Privacy
 
-Screenshoss is local-first. Screenshot files stay on your Mac unless you share them. The app does not require a login and does not upload your screenshots. It contacts the GitHub Releases API only when you select **Check for Updates...**.
+Screenshoss is local-first. Screenshot files stay on your Mac unless you share them. The app does not require a login and does not upload your screenshots. Its Sparkle updater reads the signed update feed from GitHub Releases during automatic and manual update checks.
 
 ## License
 

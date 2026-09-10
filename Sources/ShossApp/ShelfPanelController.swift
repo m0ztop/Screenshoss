@@ -163,6 +163,8 @@ final class ShelfPanelController: NSObject {
     private var quickLookSource: QuickLookSource?
     private var selectedItemCancellable: AnyCancellable?
     private var displayChangeTask: Task<Void, Never>?
+    private var pointerMonitors: [Any] = []
+    private var lastPointerScreenID: CGDirectDisplayID?
     private var notificationObservers: [NSObjectProtocol] = []
     private static var hasPerformedEntranceAnimation = false
 
@@ -234,6 +236,7 @@ final class ShelfPanelController: NSObject {
             }
 
         observeDisplayChanges()
+        observePointerScreenChanges()
     }
 
     private func configureFloatingPanel(_ panel: ShelfPanel) {
@@ -481,15 +484,54 @@ final class ShelfPanelController: NSObject {
         return true
     }
 
+    /// The shelf belongs on the display the user is actually working on, so
+    /// the pointer's screen wins. `NSScreen.main` is only a fallback: for a
+    /// menu bar app it resolves to the screen owning the menu bar (or the
+    /// shelf itself once expanded), which pins the shelf to one display on a
+    /// multi-monitor desk.
     private func targetScreen() -> NSScreen? {
-        if let screen = NSScreen.main { return screen }
-
         let mouseLocation = NSEvent.mouseLocation
         if let screen = NSScreen.screens.first(where: { NSMouseInRect(mouseLocation, $0.frame, false) }) {
             return screen
         }
 
+        if let screen = NSScreen.main { return screen }
+
         return NSScreen.screens.first
+    }
+
+    /// Follows the pointer between displays while the shelf is at rest.
+    ///
+    /// Only a genuine screen change does any work: the comparison is a
+    /// display id, and every other mouse move returns immediately. An
+    /// expanded shelf is never moved out from under the pointer, and it does
+    /// not need to be, because collapsing re-derives its frame from
+    /// `targetScreen()` anyway.
+    private func observePointerScreenChanges() {
+        lastPointerScreenID = currentPointerScreenID()
+
+        let handler: (NSEvent) -> Void = { [weak self] _ in
+            guard let self else { return }
+            let id = self.currentPointerScreenID()
+            guard id != self.lastPointerScreenID else { return }
+            self.lastPointerScreenID = id
+            guard !self.library.isExpanded else { return }
+            self.scheduleDisplayReposition()
+        }
+
+        pointerMonitors = [
+            NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged], handler: handler),
+            NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged]) { event in
+                handler(event)
+                return event
+            }
+        ].compactMap { $0 }
+    }
+
+    private func currentPointerScreenID() -> CGDirectDisplayID? {
+        let mouseLocation = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first { NSMouseInRect(mouseLocation, $0.frame, false) }
+        return screen?.displayID
     }
 
     private func hasNativeCameraHousing(_ screen: NSScreen) -> Bool {
@@ -568,5 +610,13 @@ final class ShelfPanelController: NSObject {
             mode: library.presentationMode,
             screen: targetScreen()
         )
+    }
+}
+
+private extension NSScreen {
+    /// Stable identity for a display, so "did the pointer change screen?" is a
+    /// cheap comparison that survives a screen's frame moving.
+    var displayID: CGDirectDisplayID? {
+        deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
     }
 }

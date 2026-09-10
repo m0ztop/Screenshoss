@@ -164,6 +164,48 @@ final class ShelfScreenGeometryTests: XCTestCase {
         XCTAssertTrue(retentionFrame.contains(CGPoint(x: panelFrame.midX, y: 884)))
         XCTAssertFalse(retentionFrame.contains(CGPoint(x: 20, y: 884)))
     }
+
+    func testOpenShelfDoesNotRetainHoverOnAnotherDisplay() {
+        let screenFrame = CGRect(x: 0, y: 0, width: 1_440, height: 900)
+        let retained = ShelfScreenGeometry.retainsHover(
+            at: CGPoint(x: 2_160, y: 750),
+            collapsedFrame: CGRect(x: 640, y: 866, width: 160, height: 34),
+            expandedFrame: CGRect(x: 130, y: 392, width: 1_180, height: 476),
+            screenFrame: screenFrame,
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_440, height: 868),
+            includesMenuBar: true
+        )
+
+        XCTAssertFalse(retained)
+    }
+
+    func testSideShelfHoverPaddingDoesNotExtendOntoAnotherDisplay() {
+        let retained = ShelfScreenGeometry.retainsHover(
+            at: CGPoint(x: 1_450, y: 450),
+            collapsedFrame: CGRect(x: 1_406, y: 370, width: 34, height: 160),
+            expandedFrame: CGRect(x: 912, y: 54, width: 520, height: 760),
+            screenFrame: CGRect(x: 0, y: 0, width: 1_440, height: 900),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_440, height: 868),
+            includesMenuBar: false
+        )
+
+        XCTAssertFalse(retained)
+    }
+
+    func testTopShelfRetainsHoverInItsMenuBarAndInsideItsPadding() {
+        let screenFrame = CGRect(x: 0, y: 0, width: 1_440, height: 982)
+        let visibleFrame = CGRect(x: 0, y: 0, width: 1_440, height: 908)
+        for point in [CGPoint(x: 250, y: 954), CGPoint(x: 120, y: 600)] {
+            XCTAssertTrue(ShelfScreenGeometry.retainsHover(
+                at: point,
+                collapsedFrame: CGRect(x: 640, y: 948, width: 160, height: 34),
+                expandedFrame: CGRect(x: 130, y: 432, width: 1_180, height: 476),
+                screenFrame: screenFrame,
+                visibleFrame: visibleFrame,
+                includesMenuBar: true
+            ))
+        }
+    }
 }
 
 @MainActor

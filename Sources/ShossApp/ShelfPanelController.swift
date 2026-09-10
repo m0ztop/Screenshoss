@@ -146,6 +146,28 @@ enum ShelfScreenGeometry {
             height: max(0, screenFrame.maxY - visibleFrame.maxY)
         )
     }
+
+    static func retainsHover(
+        at mouseLocation: CGPoint,
+        collapsedFrame: CGRect,
+        expandedFrame: CGRect,
+        screenFrame: CGRect,
+        visibleFrame: CGRect,
+        includesMenuBar: Bool
+    ) -> Bool {
+        guard screenFrame.contains(mouseLocation) else { return false }
+
+        if collapsedFrame.insetBy(dx: -18, dy: -18).contains(mouseLocation)
+            || expandedFrame.insetBy(dx: -18, dy: -18).contains(mouseLocation) {
+            return true
+        }
+
+        return includesMenuBar && topMenuBarRetentionFrame(
+            panelFrame: expandedFrame,
+            screenFrame: screenFrame,
+            visibleFrame: visibleFrame
+        ).contains(mouseLocation)
+    }
 }
 
 @MainActor
@@ -361,7 +383,9 @@ final class ShelfPanelController: NSObject {
             panel.orderOut(nil)
             return
         }
-        let frame = targetFrame(for: isExpanded)
+        let screen = targetScreen()
+        updateDisplayState(for: screen)
+        let frame = targetFrame(for: isExpanded, on: screen)
 
         if isExpanded {
             firstLaunchHintController.dismiss()
@@ -373,7 +397,7 @@ final class ShelfPanelController: NSObject {
 
         if animated {
             if isExpanded {
-                panel.setFrame(targetFrame(for: false), display: false)
+                panel.setFrame(targetFrame(for: false, on: screen), display: false)
             }
             NSAnimationContext.beginGrouping()
             NSAnimationContext.current.duration = isExpanded ? 0.34 : 0.24
@@ -393,8 +417,8 @@ final class ShelfPanelController: NSObject {
         }
     }
 
-    private func targetFrame(for isExpanded: Bool) -> CGRect {
-        let screen = targetScreen()
+    private func targetFrame(for isExpanded: Bool, on screen: NSScreen? = nil) -> CGRect {
+        let screen = screen ?? targetScreen()
         let screenFrame = screen?.frame ?? .init(x: 0, y: 0, width: 1_440, height: 900)
         let visibleFrame = screen?.visibleFrame ?? screenFrame
 
@@ -464,24 +488,16 @@ final class ShelfPanelController: NSObject {
             return true
         }
 
-        let mouseLocation = NSEvent.mouseLocation
-        let collapsedHoverFrame = targetFrame(for: false).insetBy(dx: -18, dy: -18)
-        let expandedHoverFrame = targetFrame(for: true).insetBy(dx: -18, dy: -18)
-        if collapsedHoverFrame.contains(mouseLocation) || expandedHoverFrame.contains(mouseLocation) {
-            return false
-        }
-
-        if library.presentationMode == .top,
-           let screen = targetScreen(),
-           ShelfScreenGeometry.topMenuBarRetentionFrame(
-               panelFrame: targetFrame(for: true),
-               screenFrame: screen.frame,
-               visibleFrame: screen.visibleFrame
-           ).contains(mouseLocation) {
-            return false
-        }
-
-        return true
+        // The open panel stays on its display until it closes.
+        guard let screen = panel.screen ?? targetScreen() else { return true }
+        return !ShelfScreenGeometry.retainsHover(
+            at: NSEvent.mouseLocation,
+            collapsedFrame: targetFrame(for: false, on: screen),
+            expandedFrame: targetFrame(for: true, on: screen),
+            screenFrame: screen.frame,
+            visibleFrame: screen.visibleFrame,
+            includesMenuBar: library.presentationMode == .top
+        )
     }
 
     /// The shelf belongs on the display the user is actually working on, so
@@ -516,7 +532,7 @@ final class ShelfPanelController: NSObject {
             guard id != self.lastPointerScreenID else { return }
             self.lastPointerScreenID = id
             guard !self.library.isExpanded else { return }
-            self.scheduleDisplayReposition()
+            self.scheduleDisplayReposition(onlyWhenCollapsed: true)
         }
 
         pointerMonitors = [
@@ -573,11 +589,13 @@ final class ShelfPanelController: NSObject {
         notificationObservers.append(displayObserver)
     }
 
-    private func scheduleDisplayReposition() {
+    private func scheduleDisplayReposition(onlyWhenCollapsed: Bool = false) {
         displayChangeTask?.cancel()
         displayChangeTask = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(220))
             guard !Task.isCancelled else { return }
+            // The shelf can open while a pointer move is waiting.
+            guard !onlyWhenCollapsed || !library.isExpanded else { return }
             repositionForCurrentDisplay()
         }
     }

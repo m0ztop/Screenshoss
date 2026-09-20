@@ -92,6 +92,9 @@ private final class ShelfPanel: NSPanel {
 }
 
 private final class TransparentHostingView<Content: View>: NSHostingView<Content> {
+    var pointerEvent: ((NSEvent) -> Void)?
+    private var pointerTrackingArea: NSTrackingArea?
+
     override var isOpaque: Bool { false }
 
     required init(rootView: Content) {
@@ -103,6 +106,36 @@ private final class TransparentHostingView<Content: View>: NSHostingView<Content
     @MainActor @preconcurrency required dynamic init?(coder: NSCoder) {
         nil
     }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let pointerTrackingArea {
+            removeTrackingArea(pointerTrackingArea)
+        }
+        let area = NSTrackingArea(
+            rect: .zero,
+            options: [.activeAlways, .inVisibleRect, .mouseEnteredAndExited, .mouseMoved],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        pointerTrackingArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        pointerEvent?(event)
+        super.mouseEntered(with: event)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        pointerEvent?(event)
+        super.mouseExited(with: event)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        pointerEvent?(event)
+        super.mouseMoved(with: event)
+    }
 }
 
 @MainActor
@@ -111,6 +144,16 @@ final class ShelfDisplayState: ObservableObject {
 }
 
 enum ShelfScreenGeometry {
+    static let topHoverBridgeHeight: CGFloat = 8
+
+    // CGRect.contains excludes its maximum edges. A pointer at the physical
+    // top/right edge still belongs to the screen and must remain interactive.
+    static func containsPointer(_ point: CGPoint, in frame: CGRect) -> Bool {
+        !frame.isEmpty
+            && point.x >= frame.minX && point.x <= frame.maxX
+            && point.y >= frame.minY && point.y <= frame.maxY
+    }
+
     static func hasCameraHousing(
         safeAreaTopInset: CGFloat,
         auxiliaryTopLeftArea: CGRect?,
@@ -155,18 +198,18 @@ enum ShelfScreenGeometry {
         visibleFrame: CGRect,
         includesMenuBar: Bool
     ) -> Bool {
-        guard screenFrame.contains(mouseLocation) else { return false }
+        guard containsPointer(mouseLocation, in: screenFrame) else { return false }
 
-        if collapsedFrame.insetBy(dx: -18, dy: -18).contains(mouseLocation)
-            || expandedFrame.insetBy(dx: -18, dy: -18).contains(mouseLocation) {
+        if containsPointer(mouseLocation, in: collapsedFrame.insetBy(dx: -18, dy: -18))
+            || containsPointer(mouseLocation, in: expandedFrame.insetBy(dx: -18, dy: -18)) {
             return true
         }
 
-        return includesMenuBar && topMenuBarRetentionFrame(
+        return includesMenuBar && containsPointer(mouseLocation, in: topMenuBarRetentionFrame(
             panelFrame: expandedFrame,
             screenFrame: screenFrame,
             visibleFrame: visibleFrame
-        ).contains(mouseLocation)
+        ))
     }
 }
 
@@ -185,6 +228,7 @@ final class ShelfPanelController: NSObject {
     private var quickLookSource: QuickLookSource?
     private var selectedItemCancellable: AnyCancellable?
     private var displayChangeTask: Task<Void, Never>?
+    private var hoverCollapseTask: Task<Void, Never>?
     private var pointerMonitors: [Any] = []
     private var lastPointerScreenID: CGDirectDisplayID?
     private var notificationObservers: [NSObjectProtocol] = []
@@ -206,16 +250,16 @@ final class ShelfPanelController: NSObject {
         updateDisplayState(for: targetScreen())
 
         let contentView = ShelfView(library: library, displayState: displayState)
-        panel.contentView = TransparentHostingView(rootView: contentView)
+        let hostingView = TransparentHostingView(rootView: contentView)
+        hostingView.pointerEvent = { [weak self] event in
+            self?.handlePointerMovement(event)
+        }
+        panel.contentView = hostingView
 
         library.expansionDidChange = { [weak self] isExpanded in
             Task { @MainActor in
                 self?.setExpanded(isExpanded)
             }
-        }
-
-        library.shouldCollapseAfterHoverExit = { [weak self] in
-            self?.shouldCollapseAfterHoverExit() ?? true
         }
 
         library.closeAction = { [weak self] in
@@ -258,7 +302,7 @@ final class ShelfPanelController: NSObject {
             }
 
         observeDisplayChanges()
-        observePointerScreenChanges()
+        observePointerMovement()
     }
 
     private func configureFloatingPanel(_ panel: ShelfPanel) {
@@ -271,6 +315,7 @@ final class ShelfPanelController: NSObject {
         panel.isMovable = false
         panel.isReleasedWhenClosed = false
         panel.ignoresMouseEvents = false
+        panel.acceptsMouseMovedEvents = true
     }
 
     var presentationMode: ShelfPresentationMode {
@@ -307,6 +352,7 @@ final class ShelfPanelController: NSObject {
 
     func hide() {
         isHidden = true
+        cancelHoverCollapse()
         library.isExpanded = false
         closeQuickLook()
         firstLaunchHintController.dismiss()
@@ -424,15 +470,22 @@ final class ShelfPanelController: NSObject {
 
         switch library.presentationMode {
         case .top:
-            let size = isExpanded ? constrainedTopExpandedSize(in: screenFrame) : topCollapsedSize
-            let x = screenFrame.midX - size.width / 2
+            let contentSize = isExpanded ? constrainedTopExpandedSize(in: screenFrame) : topCollapsedSize
+            let x = screenFrame.midX - contentSize.width / 2
             let hasCameraHousing = screen.map(hasNativeCameraHousing) ?? false
+            let hoverBridgeHeight = isExpanded && hasCameraHousing
+                ? ShelfScreenGeometry.topHoverBridgeHeight
+                : 0
+            let size = CGSize(
+                width: contentSize.width,
+                height: contentSize.height + hoverBridgeHeight
+            )
             let topEdgeY = ShelfScreenGeometry.topEdgeY(
                 isExpanded: isExpanded,
                 hasCameraHousing: hasCameraHousing,
                 screenFrame: screenFrame,
                 visibleFrame: visibleFrame
-            )
+            ) + hoverBridgeHeight
             let y = topEdgeY - size.height
             return CGRect(origin: CGPoint(x: x, y: y), size: size)
         case .left:
@@ -483,7 +536,7 @@ final class ShelfPanelController: NSObject {
         )
     }
 
-    private func shouldCollapseAfterHoverExit() -> Bool {
+    private func shouldCollapseForCurrentPointer() -> Bool {
         guard library.isExpanded else {
             return true
         }
@@ -506,8 +559,7 @@ final class ShelfPanelController: NSObject {
     /// shelf itself once expanded), which pins the shelf to one display on a
     /// multi-monitor desk.
     private func targetScreen() -> NSScreen? {
-        let mouseLocation = NSEvent.mouseLocation
-        if let screen = NSScreen.screens.first(where: { NSMouseInRect(mouseLocation, $0.frame, false) }) {
+        if let screen = pointerScreen() {
             return screen
         }
 
@@ -516,23 +568,13 @@ final class ShelfPanelController: NSObject {
         return NSScreen.screens.first
     }
 
-    /// Follows the pointer between displays while the shelf is at rest.
-    ///
-    /// Only a genuine screen change does any work: the comparison is a
-    /// display id, and every other mouse move returns immediately. An
-    /// expanded shelf is never moved out from under the pointer, and it does
-    /// not need to be, because collapsing re-derives its frame from
-    /// `targetScreen()` anyway.
-    private func observePointerScreenChanges() {
+    /// Owns hover outside SwiftUI so replacing the collapsed view with the
+    /// expanded view cannot create a false exit and a second open animation.
+    private func observePointerMovement() {
         lastPointerScreenID = currentPointerScreenID()
 
-        let handler: (NSEvent) -> Void = { [weak self] _ in
-            guard let self else { return }
-            let id = self.currentPointerScreenID()
-            guard id != self.lastPointerScreenID else { return }
-            self.lastPointerScreenID = id
-            guard !self.library.isExpanded else { return }
-            self.scheduleDisplayReposition(onlyWhenCollapsed: true)
+        let handler: (NSEvent) -> Void = { [weak self] event in
+            self?.handlePointerMovement(event)
         }
 
         pointerMonitors = [
@@ -544,10 +586,68 @@ final class ShelfPanelController: NSObject {
         ].compactMap { $0 }
     }
 
+    private func handlePointerMovement(_ event: NSEvent) {
+        let id = currentPointerScreenID()
+        if id != lastPointerScreenID {
+            lastPointerScreenID = id
+            if !library.isExpanded {
+                scheduleDisplayReposition(onlyWhenCollapsed: true)
+            }
+        }
+
+        guard !isHidden, panel.isVisible else { return }
+
+        if library.isExpanded {
+            if shouldCollapseForCurrentPointer() {
+                scheduleHoverCollapse()
+            } else {
+                cancelHoverCollapse()
+            }
+            return
+        }
+
+        cancelHoverCollapse()
+        guard event.type == .mouseMoved || event.type == .mouseEntered else { return }
+        guard let screen = targetScreen() else { return }
+        guard ShelfScreenGeometry.containsPointer(
+            NSEvent.mouseLocation, in: targetFrame(for: false, on: screen)
+        ) else { return }
+        library.isExpanded = true
+    }
+
+    private func scheduleHoverCollapse() {
+        guard hoverCollapseTask == nil else { return }
+        hoverCollapseTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .milliseconds(260))
+            } catch {
+                return
+            }
+
+            guard let self else { return }
+            self.hoverCollapseTask = nil
+            guard self.library.isExpanded, self.shouldCollapseForCurrentPointer() else { return }
+            self.library.isExpanded = false
+        }
+    }
+
+    private func cancelHoverCollapse() {
+        hoverCollapseTask?.cancel()
+        hoverCollapseTask = nil
+    }
+
     private func currentPointerScreenID() -> CGDirectDisplayID? {
+        pointerScreen()?.displayID
+    }
+
+    private func pointerScreen() -> NSScreen? {
         let mouseLocation = NSEvent.mouseLocation
-        let screen = NSScreen.screens.first { NSMouseInRect(mouseLocation, $0.frame, false) }
-        return screen?.displayID
+        // Prefer the display containing the point before considering an exact
+        // outer edge, so a shared boundary still has one consistent owner.
+        return NSScreen.screens.first { $0.frame.contains(mouseLocation) }
+            ?? NSScreen.screens.first {
+                ShelfScreenGeometry.containsPointer(mouseLocation, in: $0.frame)
+            }
     }
 
     private func hasNativeCameraHousing(_ screen: NSScreen) -> Bool {

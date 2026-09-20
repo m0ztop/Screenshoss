@@ -10,8 +10,8 @@ if [[ ! "$APP_VERSION" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
     exit 1
 fi
 
-ARM64_BUILD_DIR=".build/arm64-apple-macosx/release"
-X86_64_BUILD_DIR=".build/x86_64-apple-macosx/release"
+ARM64_BUILD_ROOT=".build/package-arm64"
+X86_64_BUILD_ROOT=".build/package-x86_64"
 DIST_DIR="dist"
 OUTPUT_APP_ZIP_PATH="$DIST_DIR/Screenshoss.app.zip"
 OUTPUT_DMG_PATH="$DIST_DIR/Screenshoss.dmg"
@@ -55,8 +55,10 @@ if [ -n "$NOTARY_PROFILE" ]; then
 fi
 
 echo "=== Building release binaries (Apple Silicon + Intel) ==="
-swift build -c release --triple arm64-apple-macosx13.0
-swift build -c release --triple x86_64-apple-macosx13.0
+ARM64_BUILD_DIR="$(swift build -c release --triple arm64-apple-macosx13.0 --scratch-path "$ARM64_BUILD_ROOT" --show-bin-path)"
+swift build -c release --triple arm64-apple-macosx13.0 --scratch-path "$ARM64_BUILD_ROOT"
+X86_64_BUILD_DIR="$(swift build -c release --triple x86_64-apple-macosx13.0 --scratch-path "$X86_64_BUILD_ROOT" --show-bin-path)"
+swift build -c release --triple x86_64-apple-macosx13.0 --scratch-path "$X86_64_BUILD_ROOT"
 
 echo "=== Preparing .app bundle ==="
 rm -rf "$PACKAGE_ROOT" "$DIST_DIR/Screenshoss.app" "$DIST_DIR/Shoss.app" "$DIST_DIR/Shoss.app.zip"

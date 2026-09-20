@@ -5,7 +5,6 @@ import UniformTypeIdentifiers
 struct ShelfView: View {
     @ObservedObject var library: ScreenshotLibrary
     @ObservedObject var displayState: ShelfDisplayState
-    @State private var hoverCollapseTask: Task<Void, Never>?
 
     var body: some View {
         Group {
@@ -27,26 +26,6 @@ struct ShelfView: View {
             .spring(response: 0.32, dampingFraction: 0.9, blendDuration: 0.08),
             value: library.presentationMode
         )
-        .onHover { hovering in
-            hoverCollapseTask?.cancel()
-            if hovering {
-                library.isExpanded = true
-            } else {
-                scheduleHoverCollapseCheck()
-            }
-        }
-    }
-
-    private func scheduleHoverCollapseCheck() {
-        hoverCollapseTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(260))
-            guard !Task.isCancelled else { return }
-            if library.shouldCollapseAfterHoverExit?() ?? true {
-                library.isExpanded = false
-            } else {
-                scheduleHoverCollapseCheck()
-            }
-        }
     }
 }
 
@@ -119,7 +98,17 @@ private struct TopNotchShelfView: View {
     var body: some View {
         ZStack(alignment: .top) {
             if library.isExpanded {
-                ExpandedShelfView(library: library)
+                VStack(spacing: 0) {
+                    if hidesCollapsedVisual {
+                        Color.clear
+                            .frame(height: ShelfScreenGeometry.topHoverBridgeHeight)
+                            .contentShape(Rectangle())
+                            .disabled(true)
+                            .accessibilityHidden(true)
+                    }
+
+                    ExpandedShelfView(library: library)
+                }
                     .zIndex(2)
                     .transition(
                         .asymmetric(

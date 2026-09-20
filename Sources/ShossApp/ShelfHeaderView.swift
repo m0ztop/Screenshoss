@@ -178,7 +178,11 @@ private struct FolderFilterStripView: View {
         let shouldShowTrailingFade = isOverflowing && folderScrollOffset < folderMaximumScrollOffset - 2
 
         HStack(spacing: 8) {
-            ScrollView(.horizontal, showsIndicators: false) {
+            FolderHorizontalScrollView { width, offset, maximumOffset in
+                folderContentWidth = width
+                folderScrollOffset = offset
+                folderMaximumScrollOffset = maximumOffset
+            } content: {
                 HStack(spacing: 8) {
                     FolderFilterPill(
                         title: "Recent",
@@ -210,21 +214,9 @@ private struct FolderFilterStripView: View {
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
-                .background {
-                    ZStack {
-                        GeometryReader { proxy in
-                            Color.clear
-                                .preference(key: FolderContentWidthKey.self, value: proxy.size.width)
-                        }
-
-                        FolderScrollPositionReader { offset, maximumOffset in
-                            folderScrollOffset = offset
-                            folderMaximumScrollOffset = maximumOffset
-                        }
-                    }
-                }
+                .fixedSize(horizontal: true, vertical: true)
             }
-            .frame(width: scrollWidth, alignment: .leading)
+            .frame(width: scrollWidth, height: 42, alignment: .leading)
             .mask(
                 LinearGradient(
                     stops: folderMaskStops(
@@ -236,7 +228,6 @@ private struct FolderFilterStripView: View {
                     endPoint: .trailing
                 )
             )
-            .onPreferenceChange(FolderContentWidthKey.self) { folderContentWidth = $0 }
 
             if showsAddButton {
                 FolderAddButton(library: library)
@@ -302,88 +293,82 @@ private struct FolderFilterStripView: View {
     }
 }
 
-private struct FolderContentWidthKey: PreferenceKey {
-    static let defaultValue: CGFloat = 1
+// This view has horizontal position only. It cannot acquire a vertical scroll
+// offset or vertical rubber-band state.
+private struct FolderHorizontalScrollView<Content: View>: NSViewRepresentable {
+    let onChange: (CGFloat, CGFloat, CGFloat) -> Void
+    @ViewBuilder let content: () -> Content
 
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
+    func makeNSView(context: Context) -> FolderHorizontalClipView<Content> {
+        FolderHorizontalClipView(content: content(), onChange: onChange)
+    }
+
+    func updateNSView(_ view: FolderHorizontalClipView<Content>, context: Context) {
+        view.onChange = onChange
+        view.hostingView.rootView = content()
+        view.hostingView.invalidateIntrinsicContentSize()
+        view.needsLayout = true
     }
 }
 
-private struct FolderScrollPositionReader: NSViewRepresentable {
-    let onChange: (CGFloat, CGFloat) -> Void
+private final class FolderHorizontalClipView<Content: View>: NSView {
+    let hostingView: NSHostingView<Content>
+    var onChange: (CGFloat, CGFloat, CGFloat) -> Void
+    private var horizontalOffset: CGFloat = 0
+    private var lastMetrics: [CGFloat] = []
 
-    func makeNSView(context: Context) -> FolderScrollObserverView {
-        let view = FolderScrollObserverView()
-        view.onChange = onChange
-        return view
+    init(content: Content, onChange: @escaping (CGFloat, CGFloat, CGFloat) -> Void) {
+        hostingView = NSHostingView(rootView: content)
+        self.onChange = onChange
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.masksToBounds = true
+        addSubview(hostingView)
     }
 
-    func updateNSView(_ view: FolderScrollObserverView, context: Context) {
-        view.onChange = onChange
-        view.attachAndPublish()
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 
-    static func dismantleNSView(_ view: FolderScrollObserverView, coordinator: Void) {
-        view.detach()
+    override var isFlipped: Bool { true }
+
+    override func layout() {
+        super.layout()
+        hostingView.layoutSubtreeIfNeeded()
+        let contentWidth = hostingView.fittingSize.width
+        let maximumOffset = max(0, contentWidth - bounds.width)
+        horizontalOffset = min(max(0, horizontalOffset), maximumOffset)
+        hostingView.frame = NSRect(
+            x: -horizontalOffset,
+            y: 0,
+            width: contentWidth,
+            height: bounds.height
+        )
+        publishScrollMetrics(contentWidth: contentWidth, maximumOffset: maximumOffset)
     }
-}
 
-private final class FolderScrollObserverView: NSView {
-    var onChange: ((CGFloat, CGFloat) -> Void)?
-    private weak var observedScrollView: NSScrollView?
+    override func scrollWheel(with event: NSEvent) {
+        let multiplier: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 10
+        let horizontalDelta = event.scrollingDeltaX * multiplier
+        guard horizontalDelta != 0 else { return }
 
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        attachAndPublish()
+        let maximumOffset = max(0, hostingView.frame.width - bounds.width)
+        let nextOffset = min(max(0, horizontalOffset - horizontalDelta), maximumOffset)
+        guard nextOffset != horizontalOffset else { return }
+
+        horizontalOffset = nextOffset
+        needsLayout = true
+        layoutSubtreeIfNeeded()
     }
 
-    func attachAndPublish() {
+    private func publishScrollMetrics(contentWidth: CGFloat, maximumOffset: CGFloat) {
+        let metrics = [contentWidth, horizontalOffset, maximumOffset]
+        guard metrics != lastMetrics else { return }
+        lastMetrics = metrics
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            guard let scrollView = enclosingScrollView else { return }
-
-            if observedScrollView !== scrollView {
-                detach()
-                observedScrollView = scrollView
-                scrollView.contentView.postsBoundsChangedNotifications = true
-                scrollView.documentView?.postsFrameChangedNotifications = true
-                NotificationCenter.default.addObserver(
-                    self,
-                    selector: #selector(scrollMetricsDidChange),
-                    name: NSView.boundsDidChangeNotification,
-                    object: scrollView.contentView
-                )
-                if let documentView = scrollView.documentView {
-                    NotificationCenter.default.addObserver(
-                        self,
-                        selector: #selector(scrollMetricsDidChange),
-                        name: NSView.frameDidChangeNotification,
-                        object: documentView
-                    )
-                }
-            }
-
-            publishScrollMetrics()
+            self.onChange(contentWidth, self.horizontalOffset, maximumOffset)
         }
-    }
-
-    func detach() {
-        NotificationCenter.default.removeObserver(self)
-        observedScrollView = nil
-    }
-
-    @objc private func scrollMetricsDidChange() {
-        publishScrollMetrics()
-    }
-
-    private func publishScrollMetrics() {
-        guard let scrollView = observedScrollView else { return }
-        let visibleRect = scrollView.contentView.bounds
-        let documentWidth = scrollView.documentView?.frame.width ?? visibleRect.width
-        let maximumOffset = max(0, documentWidth - visibleRect.width)
-        let offset = min(max(0, visibleRect.minX), maximumOffset)
-        onChange?(offset, maximumOffset)
     }
 }
 

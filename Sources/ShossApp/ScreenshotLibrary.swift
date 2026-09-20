@@ -58,7 +58,6 @@ final class ScreenshotLibrary: ObservableObject {
     }
 
     var expansionDidChange: ((Bool) -> Void)?
-    var shouldCollapseAfterHoverExit: (() -> Bool)?
     var closeAction: (() -> Void)?
     var modalWillOpen: (() -> Void)?
     var modalDidClose: (() -> Void)?

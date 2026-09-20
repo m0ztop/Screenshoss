@@ -107,6 +107,50 @@ final class LooksLikeMacScreenshotTests: XCTestCase {
 }
 
 final class ShelfScreenGeometryTests: XCTestCase {
+    func testTopTriggerIncludesPhysicalScreenEdge() {
+        let screen = CGRect(x: 0, y: 0, width: 2_560, height: 1_440)
+        let trigger = CGRect(x: 1_200, y: 1_406, width: 160, height: 34)
+
+        for y in [screen.maxY - 1, screen.maxY] {
+            let pointer = CGPoint(x: screen.midX, y: y)
+            XCTAssertTrue(ShelfScreenGeometry.containsPointer(pointer, in: screen))
+            XCTAssertTrue(ShelfScreenGeometry.containsPointer(pointer, in: trigger))
+        }
+        XCTAssertFalse(ShelfScreenGeometry.containsPointer(
+            CGPoint(x: screen.midX, y: screen.maxY + 1), in: screen
+        ))
+        XCTAssertFalse(ShelfScreenGeometry.containsPointer(
+            CGPoint(x: trigger.maxX + 1, y: screen.maxY), in: trigger
+        ))
+    }
+
+    func testTopEdgeKeepsOpenPanelRetainedAcrossDisplayOrigins() {
+        for origin in [CGPoint.zero, CGPoint(x: -2_560, y: 320)] {
+            let screen = CGRect(origin: origin, size: CGSize(width: 2_560, height: 1_440))
+            let collapsed = CGRect(x: screen.midX - 80, y: screen.maxY - 34, width: 160, height: 34)
+            let expanded = CGRect(x: screen.midX - 590, y: screen.maxY - 476, width: 1_180, height: 476)
+
+            // A stationary pointer at the top edge must not cause the close
+            // timer to collapse the panel and then trigger another opening.
+            XCTAssertTrue(ShelfScreenGeometry.retainsHover(
+                at: CGPoint(x: screen.midX, y: screen.maxY),
+                collapsedFrame: collapsed,
+                expandedFrame: expanded,
+                screenFrame: screen,
+                visibleFrame: screen,
+                includesMenuBar: true
+            ))
+            XCTAssertFalse(ShelfScreenGeometry.retainsHover(
+                at: CGPoint(x: screen.midX, y: screen.maxY + 1),
+                collapsedFrame: collapsed,
+                expandedFrame: expanded,
+                screenFrame: screen,
+                visibleFrame: screen,
+                includesMenuBar: true
+            ))
+        }
+    }
+
     func testDetectsNativeCameraHousingFromSafeAndAuxiliaryAreas() {
         XCTAssertTrue(
             ShelfScreenGeometry.hasCameraHousing(

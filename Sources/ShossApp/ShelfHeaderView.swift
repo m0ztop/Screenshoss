@@ -315,7 +315,14 @@ private final class FolderHorizontalClipView<Content: View>: NSView {
     let hostingView: NSHostingView<Content>
     var onChange: (CGFloat, CGFloat, CGFloat) -> Void
     private var horizontalOffset: CGFloat = 0
+    private var dragStartOffset: CGFloat = 0
     private var lastMetrics: [CGFloat] = []
+    private lazy var mousePan: NSPanGestureRecognizer = {
+        let gesture = NSPanGestureRecognizer(target: self, action: #selector(handleMousePan(_:)))
+        gesture.buttonMask = 1
+        gesture.delaysPrimaryMouseButtonEvents = true
+        return gesture
+    }()
 
     init(content: Content, onChange: @escaping (CGFloat, CGFloat, CGFloat) -> Void) {
         hostingView = NSHostingView(rootView: content)
@@ -324,6 +331,7 @@ private final class FolderHorizontalClipView<Content: View>: NSView {
         wantsLayer = true
         layer?.masksToBounds = true
         addSubview(hostingView)
+        addGestureRecognizer(mousePan)
     }
 
     required init?(coder: NSCoder) {
@@ -337,6 +345,10 @@ private final class FolderHorizontalClipView<Content: View>: NSView {
         hostingView.layoutSubtreeIfNeeded()
         let contentWidth = hostingView.fittingSize.width
         let maximumOffset = max(0, contentWidth - bounds.width)
+        let canDrag = maximumOffset > 0
+        if mousePan.isEnabled != canDrag {
+            mousePan.isEnabled = canDrag
+        }
         horizontalOffset = min(max(0, horizontalOffset), maximumOffset)
         hostingView.frame = NSRect(
             x: -horizontalOffset,
@@ -352,8 +364,24 @@ private final class FolderHorizontalClipView<Content: View>: NSView {
         let horizontalDelta = event.scrollingDeltaX * multiplier
         guard horizontalDelta != 0 else { return }
 
+        setHorizontalOffset(horizontalOffset - horizontalDelta)
+    }
+
+    @objc private func handleMousePan(_ gesture: NSPanGestureRecognizer) {
+        switch gesture.state {
+        case .began:
+            dragStartOffset = horizontalOffset
+            fallthrough
+        case .changed:
+            setHorizontalOffset(dragStartOffset - gesture.translation(in: self).x)
+        default:
+            break
+        }
+    }
+
+    private func setHorizontalOffset(_ offset: CGFloat) {
         let maximumOffset = max(0, hostingView.frame.width - bounds.width)
-        let nextOffset = min(max(0, horizontalOffset - horizontalDelta), maximumOffset)
+        let nextOffset = min(max(0, offset), maximumOffset)
         guard nextOffset != horizontalOffset else { return }
 
         horizontalOffset = nextOffset

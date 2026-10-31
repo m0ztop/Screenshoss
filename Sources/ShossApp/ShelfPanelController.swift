@@ -24,6 +24,7 @@ private final class ShelfPanel: NSPanel {
     var quickLookAction: (() -> Void)?
     var copySelectionAction: (() -> Bool)?
     var deleteSelectionAction: (() -> Bool)?
+    var moveSelectionAction: ((Int) -> Bool)?
 
     override var canBecomeKey: Bool { true }
 
@@ -58,6 +59,15 @@ private final class ShelfPanel: NSPanel {
         if event.keyCode == 49 {
             quickLookAction?()
             return
+        }
+
+        switch event.keyCode {
+        case 123, 126: // Left or Up arrow
+            if moveSelectionAction?(-1) == true { return }
+        case 124, 125: // Right or Down arrow
+            if moveSelectionAction?(1) == true { return }
+        default:
+            break
         }
         super.keyDown(with: event)
     }
@@ -291,6 +301,10 @@ final class ShelfPanelController: NSObject {
 
         panel.deleteSelectionAction = { [weak self] in
             self?.library.deleteSelection() ?? false
+        }
+
+        panel.moveSelectionAction = { [weak self] offset in
+            self?.library.moveSelection(by: offset) ?? false
         }
 
         selectedItemCancellable = library.$selectedItem

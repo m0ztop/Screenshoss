@@ -670,6 +670,22 @@ final class ScreenshotLibrary: ObservableObject {
         }
     }
 
+    @discardableResult
+    func moveSelection(by offset: Int) -> Bool {
+        let currentItems = filteredItems
+        guard !currentItems.isEmpty else { return false }
+
+        guard let current = selectedItem,
+              let currentIndex = currentItems.firstIndex(where: { $0.id == current.id }) else {
+            setSingleSelection(offset >= 0 ? currentItems.first : currentItems.last)
+            return true
+        }
+
+        let nextIndex = max(0, min(currentItems.count - 1, currentIndex + offset))
+        setSingleSelection(currentItems[nextIndex])
+        return true
+    }
+
     private func setSingleSelection(_ item: ScreenshotItem?) {
         selectionService.setSingle(item)
         publishSelection()
